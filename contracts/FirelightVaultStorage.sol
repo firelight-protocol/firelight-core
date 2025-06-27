@@ -6,6 +6,7 @@ import {Checkpoints} from "./lib/Checkpoints.sol";
 /**
  * @title FirelightVaultStorage
  * @notice Storage of FirelightVault
+ * @custom:security-contact securityreport@firelight.finance
  */
 abstract contract FirelightVaultStorage {
     bytes32 public constant DEPOSIT_LIMIT_UPDATE_ROLE = keccak256("DEPOSIT_LIMIT_UPDATE_ROLE");
