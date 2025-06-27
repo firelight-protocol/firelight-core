@@ -22,8 +22,9 @@ abstract contract FirelightVaultStorage {
     bytes32 public constant PAUSE_ROLE = keccak256("PAUSE_ROLE");
 
     /// @notice Role for updating the period configurations.
-    bytes32 public constant PERIOD_INIT_UPDATE_ROLE = keccak256("PERIOD_INIT_UPDATE_ROLE");
+    bytes32 public constant PERIOD_CONFIGURATION_UPDATE_ROLE = keccak256("PERIOD_CONFIGURATION_UPDATE_ROLE");
 
+    /// @notice Minimum period duration in seconds.
     uint48 public constant SMALLEST_PERIOD_DURATION = 1 days;
 
     /// @notice The maximum total amount of assets that can be deposited into the vault.
