@@ -17,6 +17,7 @@ import {Checkpoints} from "./lib/Checkpoints.sol";
 /**
  * @title FirelightVault
  * @notice Upgradeable ERC4626-compatible vault
+ * @custom:security-contact securityreport@firelight.finance
  */
 contract FirelightVault is
     FirelightVaultStorage,

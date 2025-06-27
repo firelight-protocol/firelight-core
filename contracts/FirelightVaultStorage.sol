@@ -6,6 +6,7 @@ import {Checkpoints} from "./lib/Checkpoints.sol";
 /**
  * @title FirelightVaultStorage
  * @notice Storage layout for FirelightVault.
+ * @custom:security-contact securityreport@firelight.finance
  */
 abstract contract FirelightVaultStorage {
     /// @notice Role for updating deposit limits.
