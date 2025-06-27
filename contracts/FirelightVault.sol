@@ -35,16 +35,18 @@ contract FirelightVault is
      * @param limitUpdater Address assigned the DEPOSIT_LIMIT_UPDATE_ROLE at initialization.
      * @param blacklister Address assigned the BLACKLIST_ROLE at initialization.
      * @param pauser Address assigned the PAUSE_ROLE at initialization.
+     * @param periodInitUpdater Address assigned the PERIOD_INIT_UPDATE_ROLE at initialization.
      * @param depositLimit Initial total deposit limit.
-     * @param periodDuration Period duration of the vault. Cannot be changed.
+     * @param periodInitDuration Initial period duration of the vault.
      */
     struct InitParams {
         address defaultAdmin;
         address limitUpdater;
         address blacklister;
         address pauser;
+        address periodInitUpdater;
         uint256 depositLimit;
-        uint48 periodDuration;
+        uint48 periodInitDuration;
     }
 
     /**
@@ -82,12 +84,15 @@ contract FirelightVault is
     error BlacklistedAddress();
     error DepositLimitExceeded();
     error InvalidDepositLimit();
+    error InvalidPeriodInitEpoch();
+    error InvalidPeriodInitDuration();
     error InsufficientShares();
     error InvalidAssetAddress();
     error InvalidAdminAddress();
     error InvalidAddress();
     error InvalidAmount();
     error InvalidPeriod();
+    error CurrentPeriodInitNotLast();
     error AlreadyClaimedPeriod();
     error NoWithdrawalAmount();
 
@@ -125,8 +130,8 @@ contract FirelightVault is
             revert InvalidDepositLimit();
         }
 
-        if (initParams.periodDuration == 0) {
-            revert InvalidDepositLimit();
+        if (initParams.periodInitDuration == 0) {
+            revert InvalidPeriodInitDuration();
         }
 
         if (initParams.defaultAdmin == address(0)) {
@@ -134,8 +139,7 @@ contract FirelightVault is
         }
 
         depositLimit = initParams.depositLimit;
-        periodInit = Time.timestamp();
-        periodDuration = initParams.periodDuration;
+        _appendPeriodInit(Time.timestamp(), initParams.periodInitDuration);
         contractVersion = 1;
 
         _grantRole(DEFAULT_ADMIN_ROLE, initParams.defaultAdmin);
@@ -151,6 +155,10 @@ contract FirelightVault is
         if (initParams.pauser != address(0)) {
             _grantRole(PAUSE_ROLE, initParams.pauser);
         }
+
+        if (initParams.periodInitUpdater != address(0)) {
+            _grantRole(PERIOD_INIT_UPDATE_ROLE, initParams.periodInitUpdater);
+        }
     }
 
     /**
@@ -158,15 +166,26 @@ contract FirelightVault is
      * @return The current period number since contract deployment.
      */
     function currentPeriod() public view returns (uint256) {
-        return (Time.timestamp() - periodInit) / periodDuration;
+        PeriodInit memory currentPeriodInit = _currentPeriodInit();
+        return currentPeriodInit.startingPeriod + _sinceEpoch(currentPeriodInit.epoch) / currentPeriodInit.duration;        
     }
 
     /**
      * @notice Returns the start timestamp of the current period.
      * @return Timestamp of the current start period.
      */
-    function currentPeriodStart() external view returns (uint256) {
-        return (periodInit + currentPeriod() * periodDuration);
+    function currentPeriodStart() external view returns (uint48) {
+        PeriodInit memory currentPeriodInit = _currentPeriodInit();
+        return currentPeriodInit.epoch + (_sinceEpoch(currentPeriodInit.epoch) / currentPeriodInit.duration) * currentPeriodInit.duration;
+    }
+
+    /**
+     * @notice Returns the end timestamp of the current period.
+     * @return Timestamp of the current end period.
+     */
+    function currentPeriodEnd() public view returns (uint48) {
+        PeriodInit memory currentPeriodInit = _currentPeriodInit();
+        return currentPeriodInit.epoch + (_sinceEpoch(currentPeriodInit.epoch) / currentPeriodInit.duration + 1) * currentPeriodInit.duration;
     }
 
     /**
@@ -246,6 +265,15 @@ contract FirelightVault is
         }
         depositLimit = newLimit;
         emit DepositLimitUpdated(newLimit);
+    }
+
+    /**
+     * @notice Appends a period init. Requires PERIOD_INIT_UPDATE_ROLE.
+     * @param epoch The epoch timestamp.
+     * @param duration The period duration.
+     */
+    function appendPeriodInit(uint48 epoch, uint48 duration) external onlyRole(PERIOD_INIT_UPDATE_ROLE) {
+        _appendPeriodInit(epoch, duration);
     }
 
     /**
@@ -522,5 +550,55 @@ contract FirelightVault is
         Math.Rounding rounding
     ) private view returns (uint256) {
         return shares.mulDiv(totAssets + 1, totSupply + 10 ** _decimalsOffset(), rounding);
+    }
+
+    function _sinceEpoch(uint48 epoch) private view returns (uint48) {
+        return Time.timestamp() - epoch;
+    }
+
+    function _periodInitAt(uint48 timestamp) private view returns (PeriodInit memory) {
+        if (periodInits.length == 0) revert InvalidPeriod();
+
+        PeriodInit memory periodInit;
+        for (uint i = 0; i < periodInits.length; i++) {
+            if (timestamp < periodInits[i].epoch)
+                break;
+            periodInit = periodInits[i];
+        }
+        if (periodInit.epoch == 0) revert InvalidPeriod();
+        return periodInit;
+    }
+
+    function _currentPeriodInit() private view returns (PeriodInit memory) {
+        return _periodInitAt(Time.timestamp());
+    }
+
+    function _nextPeriodEnd() private view returns (uint48) {
+        uint48 currentEnd = currentPeriodEnd();
+        return currentEnd + _periodInitAt(currentEnd).duration;
+    }
+
+    function _appendPeriodInit(uint48 newEpoch, uint48 newDuration) private {
+        if (newDuration < SMALLEST_PERIOD_DURATION || newDuration % SMALLEST_PERIOD_DURATION != 0) revert InvalidPeriodInitDuration();
+
+        uint startingPeriod;
+        if (periodInits.length > 0) {
+            PeriodInit memory currentPeriodInit = _currentPeriodInit();
+            if (currentPeriodInit.epoch != periodInits[periodInits.length - 1].epoch) revert CurrentPeriodInitNotLast();
+            if (newEpoch < _nextPeriodEnd() || (newEpoch - currentPeriodInit.epoch) % currentPeriodInit.duration != 0) revert InvalidPeriodInitEpoch();
+
+            startingPeriod = currentPeriodInit.startingPeriod + (newEpoch - currentPeriodInit.epoch) / currentPeriodInit.duration;
+        } else {
+            if (newEpoch < Time.timestamp()) revert InvalidPeriodInitEpoch();
+
+            startingPeriod = 0;
+        }
+
+        PeriodInit memory newPeriod = PeriodInit({
+            epoch: newEpoch,
+            duration: newDuration,
+            startingPeriod: startingPeriod
+        });
+        periodInits.push(newPeriod);
     }
 }
