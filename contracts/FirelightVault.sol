@@ -461,7 +461,7 @@ contract FirelightVault is
             assets,
             withdrawShares[period],
             withdrawAssets[period],
-            Math.Rounding.Ceil
+            Math.Rounding.Floor
         );
         withdrawAssets[period] += assets;
         withdrawShares[period] += sharesWithdraw;
