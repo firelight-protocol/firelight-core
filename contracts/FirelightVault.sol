@@ -105,6 +105,7 @@ contract FirelightVault is
     event WithdrawRescuedFromBlacklisted(address from, address to, uint256[] periods, uint256[] rescuedShares);
 
     error BlacklistedAddress();
+    error NotBlacklistedAddress();
     error DepositLimitExceeded();
     error InvalidDepositLimit();
     error InvalidPeriodConfigurationEpoch();
@@ -126,6 +127,14 @@ contract FirelightVault is
         }
         _;
     }
+    
+    modifier onlyBlacklisted(address account) {
+        if (!isBlacklisted[account]) {
+            revert NotBlacklistedAddress();
+        }
+        _;
+    }
+
     /**
      * @notice Initializes the FirelightVault contract with given parameters
      * @param _asset The underlying collateral ERC20 token.
@@ -374,17 +383,18 @@ contract FirelightVault is
 
     /**
      * @notice Adds an address to the blacklist. Requires BLACKLIST_ROLE.
-     * @param account Address to blacklist.
+     * @param account Address to blacklist. Cannot be zero address nor blacklisted.
      */
-    function addToBlacklist(address account) external onlyRole(BLACKLIST_ROLE) {
+    function addToBlacklist(address account) external onlyRole(BLACKLIST_ROLE) notBlacklisted(account) {
+        if (account == address(0)) revert InvalidAddress();
         isBlacklisted[account] = true;
     }
 
     /**
      * @notice Removes an address from the blacklist. Requires BLACKLIST_ROLE.
-     * @param account Address to remove from blacklist.
+     * @param account Address to remove from blacklist. Must be blacklisted.
      */
-    function removeFromBlacklist(address account) external onlyRole(BLACKLIST_ROLE) {
+    function removeFromBlacklist(address account) external onlyRole(BLACKLIST_ROLE) onlyBlacklisted(account) {
         isBlacklisted[account] = false;
     }
 
@@ -397,7 +407,14 @@ contract FirelightVault is
     function transfer(
         address to,
         uint256 shares
-    ) public override(ERC20Upgradeable, IERC20) whenNotPaused notBlacklisted(_msgSender()) returns (bool) {
+    )
+        public
+        override(ERC20Upgradeable, IERC20)
+        whenNotPaused
+        notBlacklisted(_msgSender())
+        notBlacklisted(to)
+        returns (bool)
+    {
         super.transfer(to, shares);
 
         uint48 ts = Time.timestamp();
@@ -419,7 +436,15 @@ contract FirelightVault is
         address from,
         address to,
         uint256 shares
-    ) public override(ERC20Upgradeable, IERC20) whenNotPaused notBlacklisted(from) returns (bool) {
+    )
+        public
+        override(ERC20Upgradeable, IERC20)
+        whenNotPaused
+        notBlacklisted(_msgSender())
+        notBlacklisted(from)
+        notBlacklisted(to)
+        returns (bool)
+    {
         super.transferFrom(from, to, shares);
 
         uint48 ts = Time.timestamp();
@@ -438,7 +463,15 @@ contract FirelightVault is
     function deposit(
         uint256 assets,
         address receiver
-    ) public override whenNotPaused notBlacklisted(_msgSender()) nonReentrant returns (uint256) {
+    )
+        public
+        override
+        whenNotPaused
+        notBlacklisted(_msgSender())
+        notBlacklisted(receiver)
+        nonReentrant
+        returns (uint256)
+    {
         if (assets == 0) revert InvalidAmount();
 
         (uint256 shares, uint256 _totalSupply, uint256 _totalAssets) = _previewTotals(
@@ -471,7 +504,16 @@ contract FirelightVault is
         uint256 shares,
         address receiver,
         address owner
-    ) public override whenNotPaused notBlacklisted(owner) nonReentrant returns (uint256) {
+    )
+        public
+        override
+        whenNotPaused
+        notBlacklisted(_msgSender())
+        notBlacklisted(owner)
+        notBlacklisted(receiver)
+        nonReentrant
+        returns (uint256)
+    {
         if (shares == 0) revert InvalidAmount();
 
         (uint256 assets, uint256 _totalSupply, uint256 _totalAssets) = _previewTotals(
@@ -499,7 +541,16 @@ contract FirelightVault is
         uint256 assets,
         address receiver,
         address owner
-    ) public override whenNotPaused notBlacklisted(owner) nonReentrant returns (uint256) {
+    )
+        public
+        override
+        whenNotPaused
+        notBlacklisted(_msgSender())
+        notBlacklisted(owner)
+        notBlacklisted(receiver)
+        nonReentrant
+        returns (uint256)
+    {
         if (assets == 0) revert InvalidAmount();
 
         (uint256 shares, uint256 _totalSupply, uint256 _totalAssets) = _previewTotals(assets, true, Math.Rounding.Ceil);

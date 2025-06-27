@@ -10,7 +10,7 @@ describe('Blacklist test', function() {
   let checkpoint = 0n
 
   before(async () => {
-    ({ token_contract, blacklister, firelight_vault, users, utils } = await loadFixture(
+    ({ token_contract, blacklister, minter, firelight_vault, users, utils } = await loadFixture(
       deployVault.bind(null, { initial_deposit_limit: DEPOSIT_LIMIT })
     ))
 
@@ -24,25 +24,55 @@ describe('Blacklist test', function() {
     await expect(blacklist).to.be.revertedWithCustomError(firelight_vault, 'AccessControlUnauthorizedAccount')
   })
 
+  it('reverts if blacklister tries to add zero address to blacklist', async () => {
+    const blacklist = firelight_vault.connect(blacklister).addToBlacklist(ethers.ZeroAddress)
+    await expect(blacklist).to.be.revertedWithCustomError(firelight_vault, 'InvalidAddress')
+  })
+
   it('successfully adds a bad user to the blacklist', async () => {
     await firelight_vault.connect(blacklister).addToBlacklist(users[0].address)
     const status = await firelight_vault.isBlacklisted(users[0].address)
     expect(status).to.equal(true)
   })
 
+  it('reverts if blacklister tries to blacklist a user that is already blacklisted', async () => {
+    const blacklist = firelight_vault.connect(blacklister).addToBlacklist(users[0].address)
+    await expect(blacklist).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
+  })
+
   it('reverts if a blacklisted user tries to transfer', async () => {
     const transfer_attempt = firelight_vault.connect(users[0]).transfer(users[1].address, DEPOSIT_AMOUNT)
     await expect(transfer_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
   })
-  
+
+  it('reverts if a user tries to transfer to a blacklisted user', async () => {
+    const transfer_attempt = firelight_vault.connect(users[1]).transfer(users[0].address, DEPOSIT_AMOUNT)
+    await expect(transfer_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
+  })
+
   it('reverts if a blacklisted user attempts to approve a second address and use transferFrom', async () => {
     await firelight_vault.connect(users[0]).approve(users[1].address, DEPOSIT_LIMIT)
     const transfer_from_attempt = firelight_vault.connect(users[1]).transferFrom(users[0].address, users[1].address, DEPOSIT_AMOUNT)
     await expect(transfer_from_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
   })
 
-  it('reverts if a blacklisted user attempts to make deposit', async () => {
-    const deposit_attempt = firelight_vault.connect(users[0]).deposit(DEPOSIT_AMOUNT, users[0].address)
+  it('reverts if a user tries to transferFrom to a blacklisted user', async () => {
+    const transfer_from_attempt = firelight_vault.connect(users[1]).transferFrom(users[2].address, users[0].address, DEPOSIT_AMOUNT)
+    await expect(transfer_from_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
+  })
+
+  it('reverts if a blacklisted user attempts transferFrom other users', async () => {
+    const transfer_from_attempt = firelight_vault.connect(users[0]).transferFrom(users[1].address, users[2].address, DEPOSIT_AMOUNT)
+    await expect(transfer_from_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
+  })
+
+  it('reverts if a blacklisted user attempts to make deposit to any user', async () => {
+    const deposit_attempt = firelight_vault.connect(users[0]).deposit(DEPOSIT_AMOUNT, users[1].address)
+    await expect(deposit_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
+  })
+
+  it('reverts if a second user tries to make deposit to a blacklisted user', async () => {
+    const deposit_attempt = firelight_vault.connect(users[1]).deposit(DEPOSIT_AMOUNT, users[0].address)
     await expect(deposit_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
   })
 
@@ -51,14 +81,44 @@ describe('Blacklist test', function() {
     await expect(redeem_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
   })
 
+  it('reverts if a user attempts to redem to a blacklisted user', async () => {
+    const redeem_attempt = firelight_vault.connect(users[1]).redeem(DEPOSIT_AMOUNT, users[0].address, users[2].address)
+    await expect(redeem_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
+  })
+
+  it('reverts if blacklisted user tries to withdraw from and to other users', async () => {
+    const redeem_attempt = firelight_vault.connect(users[0]).redeem(DEPOSIT_AMOUNT, users[1].address, users[2].address)
+    await expect(redeem_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
+  })
+
   it('reverts if a user attempts to withdraw from a blacklisted user', async () => {
     const withdraw_attempt = firelight_vault.connect(users[1]).withdraw(DEPOSIT_AMOUNT, users[1].address, users[0].address)
+    await expect(withdraw_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
+  })
+
+  it('reverts if a user attempts to withdraw to a blacklisted user', async () => {
+    const withdraw_attempt = firelight_vault.connect(users[1]).withdraw(DEPOSIT_AMOUNT, users[0].address, users[1].address)
+    await expect(withdraw_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
+  })
+
+  it('reverts if blacklisted user tries to withdraw from and to other users', async () => {
+    const withdraw_attempt = firelight_vault.connect(users[0]).withdraw(DEPOSIT_AMOUNT, users[2].address, users[1].address)
     await expect(withdraw_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
   })
 
   it('reverts if a blacklisted user attempts to claim a withdraw', async () => {
     const withdraw_attempt = firelight_vault.connect(users[0]).claimWithdraw(1)
     await expect(withdraw_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
+  })
+
+  it('reverts if minter tries to mint to a blacklisted user', async () => {
+    const transfer_attempt = firelight_vault.connect(minter).mint(DEPOSIT_AMOUNT, users[0].address)
+    await expect(transfer_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
+  })
+
+  it('reverts if blacklister tries to remove a user that is not blacklisted', async () => {
+    const blacklist = firelight_vault.connect(blacklister).removeFromBlacklist(ethers.ZeroAddress)
+    await expect(blacklist).to.be.revertedWithCustomError(firelight_vault, 'NotBlacklistedAddress')
   })
 
   it('removes a user from the blacklist', async () => {
