@@ -87,10 +87,10 @@ describe('Rescue test', function() {
   })
 
   it('move forward one period and a user successfully requests a second withdraw, and move forward another period', async () => {
-    await time.increase(config.period_duration)
+    await time.increase(config.period_configuration_duration)
     const withdrawTrx = firelight_vault.connect(users[2]).withdraw(PART_WITHDRAW_AMOUNT, users[2].address, users[2].address)
     await expect(withdrawTrx).to.emit(firelight_vault, 'WithdrawRequest')
-    await time.increase(config.period_duration)
+    await time.increase(config.period_configuration_duration)
   })
 
   it('reverts if the caller has not RESCUER_ROLE granted', async () => {
@@ -108,7 +108,6 @@ describe('Rescue test', function() {
     await expect(rescueAttempt).to.revertedWithCustomError(firelight_vault,'InvalidAddress')
   })
 
-
   it('user successfully requests a third withdraw, claims the first one, and move forward one period', async () => {
     // Claims first request
     const prevBal = await token_contract.balanceOf(users[2].address)
@@ -123,10 +122,8 @@ describe('Rescue test', function() {
       users[2].address, users[2].address, users[2].address, currentPeriod + 1n, PART_WITHDRAW_AMOUNT, PART_WITHDRAW_AMOUNT
     )
 
-    await time.increase(config.period_duration)
+    await time.increase(config.period_configuration_duration)
   })
-
-
 
   it('reverts if rescuer tries to rescue pending withdrawals from a NOT blocklisted user', async () => {
     const rescueAttempt = firelight_vault.connect(rescuer).rescueWithdrawFromBlocklisted(users[2].address, rescuer.address, [1,2])
@@ -171,7 +168,7 @@ describe('Rescue test', function() {
     expect(await token_contract.balanceOf(rescuer.address)).to.eq(PART_WITHDRAW_AMOUNT)
 
     // Move one perdiod to make second withdraw available
-    await time.increase(config.period_duration)
+    await time.increase(config.period_configuration_duration)
     
     // Third period
     const rescue3Trx = firelight_vault.connect(rescuer).claimWithdraw(3)
