@@ -24,10 +24,20 @@ describe('Blacklist test', function() {
     await expect(blacklist).to.be.revertedWithCustomError(firelight_vault, 'AccessControlUnauthorizedAccount')
   })
 
+  it('reverts if blacklister tries to add zero address to blacklist', async () => {
+    const blacklist = firelight_vault.connect(blacklister).addToBlacklist(ethers.ZeroAddress)
+    await expect(blacklist).to.be.revertedWithCustomError(firelight_vault, 'InvalidAddress')
+  })
+
   it('successfully adds a bad user to the blacklist', async () => {
     await firelight_vault.connect(blacklister).addToBlacklist(users[0].address)
     const status = await firelight_vault.isBlacklisted(users[0].address)
     expect(status).to.equal(true)
+  })
+
+  it('reverts if blacklister tries to blacklist a user that is already blacklisted', async () => {
+    const blacklist = firelight_vault.connect(blacklister).addToBlacklist(users[0].address)
+    await expect(blacklist).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
   })
 
   it('reverts if a blacklisted user tries to transfer', async () => {
@@ -104,6 +114,11 @@ describe('Blacklist test', function() {
   it('reverts if minter tries to mint to a blacklisted user', async () => {
     const transfer_attempt = firelight_vault.connect(minter).mint(DEPOSIT_AMOUNT, users[0].address)
     await expect(transfer_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
+  })
+
+  it('reverts if blacklister tries to remove a user that is not blacklisted', async () => {
+    const blacklist = firelight_vault.connect(blacklister).removeFromBlacklist(ethers.ZeroAddress)
+    await expect(blacklist).to.be.revertedWithCustomError(firelight_vault, 'NotBlacklistedAddress')
   })
 
   it('removes a user from the blacklist', async () => {

@@ -80,6 +80,7 @@ contract FirelightVault is
     event CompleteWithdraw(address indexed receiver, uint256 assets, uint256 period);
 
     error BlacklistedAddress();
+    error NotBlacklistedAddress();
     error DepositLimitExceeded();
     error InvalidDepositLimit();
     error InsufficientShares();
@@ -97,6 +98,14 @@ contract FirelightVault is
         }
         _;
     }
+    
+    modifier onlyBlacklisted(address account) {
+        if (!isBlacklisted[account]) {
+            revert NotBlacklistedAddress();
+        }
+        _;
+    }
+
     /**
      * @notice Initializes the FirelightVault contract with given parameters
      * @param _asset The underlying collateral ERC20 token.
@@ -250,17 +259,18 @@ contract FirelightVault is
 
     /**
      * @notice Adds an address to the blacklist. Requires BLACKLIST_ROLE.
-     * @param account Address to blacklist.
+     * @param account Address to blacklist. Cannot be zero address nor blacklisted.
      */
-    function addToBlacklist(address account) external onlyRole(BLACKLIST_ROLE) {
+    function addToBlacklist(address account) external onlyRole(BLACKLIST_ROLE) notBlacklisted(account) {
+        if (account == address(0)) revert InvalidAddress();
         isBlacklisted[account] = true;
     }
 
     /**
      * @notice Removes an address from the blacklist. Requires BLACKLIST_ROLE.
-     * @param account Address to remove from blacklist.
+     * @param account Address to remove from blacklist. Must be blacklisted.
      */
-    function removeFromBlacklist(address account) external onlyRole(BLACKLIST_ROLE) {
+    function removeFromBlacklist(address account) external onlyRole(BLACKLIST_ROLE) onlyBlacklisted(account) {
         isBlacklisted[account] = false;
     }
 
