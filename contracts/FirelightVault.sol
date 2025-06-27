@@ -34,7 +34,7 @@ contract FirelightVault is
      * @notice Initial parameters needed for the vault's deployment.
      * @param defaultAdmin Vault's admin that grants and revokes roles.
      * @param limitUpdater Address assigned the DEPOSIT_LIMIT_UPDATE_ROLE at initialization.
-     * @param blacklister Address assigned the BLACKLIST_ROLE at initialization.
+     * @param blocklister Address assigned the BLOCKLIST_ROLE at initialization.
      * @param pauser Address assigned the PAUSE_ROLE at initialization.
      * @param periodConfigurationUpdater Address assigned the PERIOD_CONFIGURATION_UPDATE_ROLE at initialization.
      * @param depositLimit Initial total deposit limit.
@@ -43,7 +43,7 @@ contract FirelightVault is
     struct InitParams {
         address defaultAdmin;
         address limitUpdater;
-        address blacklister;
+        address blocklister;
         address pauser;
         address periodConfigurationUpdater;
         uint256 depositLimit;
@@ -89,24 +89,24 @@ contract FirelightVault is
     event CompleteWithdraw(address indexed receiver, uint256 assets, uint256 period);
 
     /**
-     * @notice Emitted when a user with RESCUER_ROLE successfully rescues shares from a blacklisted address.
-     * @param from The blacklisted address.
+     * @notice Emitted when a user with RESCUER_ROLE successfully rescues shares from a blocklisted address.
+     * @param from The blocklisted address.
      * @param to The beneficiary of the rescued shares.
      * @param rescuedShares The amount of shares rescued.
      */
-    event SharesRescuedFromBlacklisted(address from, address to, uint256 rescuedShares);
+    event SharesRescuedFromBlocklisted(address from, address to, uint256 rescuedShares);
 
     /**
-     * @notice Emitted when a user with RESCUER_ROLE successfully rescues a pending withdrawal from blacklisted address.
-     * @param from The blacklisted address.
+     * @notice Emitted when a user with RESCUER_ROLE successfully rescues a pending withdrawal from blocklisted address.
+     * @param from The blocklisted address.
      * @param to The beneficiary of the rescued withdrawals.
      * @param periods The array of periods rescued.
      * @param rescuedShares The array of pending shares from withdrawals rescued for each period.
      */
-    event WithdrawRescuedFromBlacklisted(address from, address to, uint256[] periods, uint256[] rescuedShares);
+    event WithdrawRescuedFromBlocklisted(address from, address to, uint256[] periods, uint256[] rescuedShares);
 
-    error BlacklistedAddress();
-    error NotBlacklistedAddress();
+    error BlocklistedAddress();
+    error NotBlocklistedAddress();
     error DepositLimitExceeded();
     error InvalidDepositLimit();
     error InvalidPeriodConfigurationEpoch();
@@ -122,16 +122,16 @@ contract FirelightVault is
     error AlreadyClaimedPeriod(uint256 period);
     error NoWithdrawalAmount(uint256 period);
 
-    modifier notBlacklisted(address account) {
-        if (isBlacklisted[account]) {
-            revert BlacklistedAddress();
+    modifier notBlocklisted(address account) {
+        if (isBlocklisted[account]) {
+            revert BlocklistedAddress();
         }
         _;
     }
     
-    modifier onlyBlacklisted(address account) {
-        if (!isBlacklisted[account]) {
-            revert NotBlacklistedAddress();
+    modifier onlyBlocklisted(address account) {
+        if (!isBlocklisted[account]) {
+            revert NotBlocklistedAddress();
         }
         _;
     }
@@ -182,8 +182,8 @@ contract FirelightVault is
             _grantRole(DEPOSIT_LIMIT_UPDATE_ROLE, initParams.limitUpdater);
         }
 
-        if (initParams.blacklister != address(0)) {
-            _grantRole(BLACKLIST_ROLE, initParams.blacklister);
+        if (initParams.blocklister != address(0)) {
+            _grantRole(BLOCKLIST_ROLE, initParams.blocklister);
         }
 
         if (initParams.pauser != address(0)) {
@@ -383,24 +383,24 @@ contract FirelightVault is
     }
 
     /**
-     * @notice Adds an address to the blacklist. Requires BLACKLIST_ROLE.
-     * @param account Address to blacklist. Cannot be zero address nor blacklisted.
+     * @notice Adds an address to the blocklist. Requires BLOCKLIST_ROLE.
+     * @param account Address to blocklist. Cannot be zero address nor blocklisted.
      */
-    function addToBlacklist(address account) external onlyRole(BLACKLIST_ROLE) notBlacklisted(account) {
+    function addToBlocklist(address account) external onlyRole(BLOCKLIST_ROLE) notBlocklisted(account) {
         if (account == address(0)) revert InvalidAddress();
-        isBlacklisted[account] = true;
+        isBlocklisted[account] = true;
     }
 
     /**
-     * @notice Removes an address from the blacklist. Requires BLACKLIST_ROLE.
-     * @param account Address to remove from blacklist. Must be blacklisted.
+     * @notice Removes an address from the blocklist. Requires BLOCKLIST_ROLE.
+     * @param account Address to remove from blocklist. Must be blocklisted.
      */
-    function removeFromBlacklist(address account) external onlyRole(BLACKLIST_ROLE) onlyBlacklisted(account) {
-        isBlacklisted[account] = false;
+    function removeFromBlocklist(address account) external onlyRole(BLOCKLIST_ROLE) onlyBlocklisted(account) {
+        isBlocklisted[account] = false;
     }
 
     /**
-     * @notice Transfers shares to an address, with blacklist and pause checks.
+     * @notice Transfers shares to an address, with blocklist and pause checks.
      * @param to Recipient address.
      * @param shares Number of shares to transfer.
      * @return Boolean indicating transfer success.
@@ -412,8 +412,8 @@ contract FirelightVault is
         public
         override(ERC20Upgradeable, IERC20)
         whenNotPaused
-        notBlacklisted(_msgSender())
-        notBlacklisted(to)
+        notBlocklisted(_msgSender())
+        notBlocklisted(to)
         returns (bool)
     {
         super.transfer(to, shares);
@@ -427,7 +427,7 @@ contract FirelightVault is
     }
 
     /**
-     * @notice Transfers shares from one account to another using allowance, with blacklist and pause checks.
+     * @notice Transfers shares from one account to another using allowance, with blocklist and pause checks.
      * @param from Address sending the shares.
      * @param to Address receiving the shares.
      * @param shares Number of shares to transfer.
@@ -441,9 +441,9 @@ contract FirelightVault is
         public
         override(ERC20Upgradeable, IERC20)
         whenNotPaused
-        notBlacklisted(_msgSender())
-        notBlacklisted(from)
-        notBlacklisted(to)
+        notBlocklisted(_msgSender())
+        notBlocklisted(from)
+        notBlocklisted(to)
         returns (bool)
     {
         super.transferFrom(from, to, shares);
@@ -456,7 +456,7 @@ contract FirelightVault is
     }
 
     /**
-     * @notice Deposits assets into the vault and receive shares, with blacklist and pause checks.
+     * @notice Deposits assets into the vault and receive shares, with blocklist and pause checks.
      * @param assets Amount of assets to deposit.
      * @param receiver Address receiving the shares.
      * @return Amount of shares received.
@@ -468,8 +468,8 @@ contract FirelightVault is
         public
         override
         whenNotPaused
-        notBlacklisted(_msgSender())
-        notBlacklisted(receiver)
+        notBlocklisted(_msgSender())
+        notBlocklisted(receiver)
         nonReentrant
         returns (uint256)
     {
@@ -494,7 +494,7 @@ contract FirelightVault is
     }
 
     /**
-     * @notice Redeems shares from the vault and receives underlying assets, with blacklist and pause checks.
+     * @notice Redeems shares from the vault and receives underlying assets, with blocklist and pause checks.
      * Creates a withdrawal request, which will be available in the next period. Shares are burned.
      * @param shares Amount of shares to redeem.
      * @param receiver Address to receive the assets in the next period.
@@ -509,9 +509,9 @@ contract FirelightVault is
         public
         override
         whenNotPaused
-        notBlacklisted(_msgSender())
-        notBlacklisted(owner)
-        notBlacklisted(receiver)
+        notBlocklisted(_msgSender())
+        notBlocklisted(owner)
+        notBlocklisted(receiver)
         nonReentrant
         returns (uint256)
     {
@@ -531,7 +531,7 @@ contract FirelightVault is
     }
 
     /**
-     * @notice Initiates a withdrawal request from the vault, with blacklist and pause checks.
+     * @notice Initiates a withdrawal request from the vault, with blocklist and pause checks.
      * The request becomes claimable starting from the period after the next full period.
      * The calculated shares are burned.
      * @param assets The amount of assets to withdraw.
@@ -547,9 +547,9 @@ contract FirelightVault is
         public
         override
         whenNotPaused
-        notBlacklisted(_msgSender())
-        notBlacklisted(owner)
-        notBlacklisted(receiver)
+        notBlocklisted(_msgSender())
+        notBlocklisted(owner)
+        notBlocklisted(receiver)
         nonReentrant
         returns (uint256)
     {
@@ -574,7 +574,7 @@ contract FirelightVault is
      */
     function claimWithdraw(
         uint256 period
-    ) external whenNotPaused notBlacklisted(_msgSender()) returns (uint256 assets) {
+    ) external whenNotPaused notBlocklisted(_msgSender()) returns (uint256 assets) {
         if (period >= currentPeriod()) revert InvalidPeriod();
 
         address sender = _msgSender();
@@ -598,18 +598,18 @@ contract FirelightVault is
     }
 
     /**
-     * @notice Rescues shares from a blacklisted address. Requires RESCUER_ROLE.
-     * @param from The blacklisted address.
-     * @param to The address to transfer the shares. Must not be blacklisted.
+     * @notice Rescues shares from a blocklisted address. Requires RESCUER_ROLE.
+     * @param from The blocklisted address.
+     * @param to The address to transfer the shares. Must not be blocklisted.
      */
-    function rescueSharesFromBlacklisted(
+    function rescueSharesFromBlocklisted(
         address from,
         address to
     ) 
         external 
         onlyRole(RESCUER_ROLE)
-        onlyBlacklisted(from)
-        notBlacklisted(to)
+        onlyBlocklisted(from)
+        notBlocklisted(to)
     {       
         uint256 rescuedShares = balanceOf(from);
         if( rescuedShares == 0) revert InsufficientShares();
@@ -620,24 +620,24 @@ contract FirelightVault is
         _traceBalanceOf[from].push(ts, 0);
         _traceBalanceOf[to].push(ts, balanceOf(to));
 
-        emit SharesRescuedFromBlacklisted(from, to, rescuedShares);
+        emit SharesRescuedFromBlocklisted(from, to, rescuedShares);
     }
 
     /**
-    * @notice Rescues pending withdrawals from a blacklisted address. Requires RESCUER_ROLE.
-    * @param from The blacklisted address.
-    * @param to The address to transfer the shares to. Must not be blacklisted.
+    * @notice Rescues pending withdrawals from a blocklisted address. Requires RESCUER_ROLE.
+    * @param from The blocklisted address.
+    * @param to The address to transfer the shares to. Must not be blocklisted.
     * @param periods An array of periods to rescue.
     */
-    function rescueWithdrawFromBlacklisted(
+    function rescueWithdrawFromBlocklisted(
         address from,
         address to,
         uint256[] calldata periods
     ) 
         external
         onlyRole(RESCUER_ROLE)
-        onlyBlacklisted(from)
-        notBlacklisted(to)
+        onlyBlocklisted(from)
+        notBlocklisted(to)
     {
         if (to == address(0)) revert InvalidAddress();
 
@@ -658,7 +658,7 @@ contract FirelightVault is
             rescuedShares[i] = _withdrawOf;
         }
 
-        emit WithdrawRescuedFromBlacklisted(from, to, periods, rescuedShares);
+        emit WithdrawRescuedFromBlocklisted(from, to, periods, rescuedShares);
     }
 
     function _requestWithdraw(

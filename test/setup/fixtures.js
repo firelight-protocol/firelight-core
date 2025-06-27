@@ -15,14 +15,14 @@ const deployVault = async (config = {}) => {
   let token_contract, firelight_vault
 
   ({ token_contract, asset_manager } = await deployFAsset([config.underlying, config.underlying, 'Ripple', 'XRP', config.decimals]))
-  let [deployer, rescuer, blacklister, pauser, limit_updater, period_configuration_updater, user1, user2, user3] = await ethers.getSigners()
-
+  let [deployer, rescuer, blocklister, pauser, limit_updater, period_configuration_updater, user1, user2, user3] = await ethers.getSigners()
+  
   const FirelightVaultFactory = await ethers.getContractFactory('FirelightVault')
 
   const InitParams = {
     defaultAdmin: deployer.address,
     limitUpdater: limit_updater.address,
-    blacklister: blacklister.address,
+    blocklister: blocklister.address,
     pauser: pauser.address,
     periodConfigurationUpdater: period_configuration_updater.address,
     depositLimit: config.initial_deposit_limit,
@@ -48,7 +48,7 @@ const deployVault = async (config = {}) => {
     firelight_vault,
     deployer,
     rescuer,
-    blacklister,
+    blocklister,
     pauser,
     limit_updater,
     period_configuration_updater,

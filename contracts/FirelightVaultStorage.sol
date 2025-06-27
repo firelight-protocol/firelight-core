@@ -12,11 +12,11 @@ abstract contract FirelightVaultStorage {
     /// @notice Role for updating deposit limits.
     bytes32 public constant DEPOSIT_LIMIT_UPDATE_ROLE = keccak256("DEPOSIT_LIMIT_UPDATE_ROLE");
 
-    /// @notice Role for rescuing funds.    
+    /// @notice Role for rescuing funds from blocklisted addresses.
     bytes32 public constant RESCUER_ROLE = keccak256("RESCUER_ROLE");
 
-    /// @notice Role for managing the blacklist.
-    bytes32 public constant BLACKLIST_ROLE = keccak256("BLACKLIST_ROLE");
+    /// @notice Role for managing the blocklist.
+    bytes32 public constant BLOCKLIST_ROLE = keccak256("BLOCKLIST_ROLE");
 
     /// @notice Role for pausing and unpausing contract operations.
     bytes32 public constant PAUSE_ROLE = keccak256("PAUSE_ROLE");
@@ -57,8 +57,8 @@ abstract contract FirelightVaultStorage {
     /// @notice Indicates whether an account has claimed their withdrawal for a given period.
     mapping(uint256 period => mapping(address account => bool value)) public isWithdrawClaimed;
 
-    /// @notice Indicates whether an account is blacklisted.
-    mapping(address account => bool) public isBlacklisted;
+    /// @notice Indicates whether an account is blocklisted.
+    mapping(address account => bool) public isBlocklisted;
 
     /// @notice Checkpoints for assets and shares.
     mapping(address account => Checkpoints.Trace256 shares) internal _traceBalanceOf;
