@@ -312,6 +312,14 @@ contract FirelightVault is
     }
 
     /**
+     * @notice Returns the length of the periodConfigurations array.
+     * @return Length of the periodConfigurations array.
+     */
+    function periodConfigurationsLength() public view returns (uint256) {
+        return periodConfigurations.length;
+    }
+
+    /**
      * @notice Pauses the contract. Requires PAUSE_ROLE.
      */
     function pause() external onlyRole(PAUSE_ROLE) {
