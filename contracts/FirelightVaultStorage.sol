@@ -10,7 +10,7 @@ import {Checkpoints} from "./lib/Checkpoints.sol";
 abstract contract FirelightVaultStorage {
     /// @notice Role for updating deposit limits.
     bytes32 public constant DEPOSIT_LIMIT_UPDATE_ROLE = keccak256("DEPOSIT_LIMIT_UPDATE_ROLE");
-/// @notice Role for rescuing funds by minting shares.
+    /// @notice Role for rescuing funds by minting shares.
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
     /// @notice Role for rescuing funds by burning shares.
