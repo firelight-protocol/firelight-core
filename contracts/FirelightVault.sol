@@ -270,7 +270,16 @@ contract FirelightVault is
      * @param receiver Address receiving the shares.
      * @return Number of shares minted.
      */
-    function mint(uint256 shares, address receiver) public override onlyRole(MINTER_ROLE) returns (uint256) {
+    function mint(
+        uint256 shares,
+        address receiver
+    )
+        public
+        override
+        onlyRole(MINTER_ROLE)
+        notBlacklisted(receiver)
+        returns (uint256)
+    {
         _mint(receiver, shares);
         _logTrace(receiver, balanceOf(receiver), totalSupply(), 0, false);
         return shares;
@@ -295,7 +304,14 @@ contract FirelightVault is
     function transfer(
         address to,
         uint256 shares
-    ) public override(ERC20Upgradeable, IERC20) whenNotPaused notBlacklisted(_msgSender()) returns (bool) {
+    )
+        public
+        override(ERC20Upgradeable, IERC20)
+        whenNotPaused
+        notBlacklisted(_msgSender())
+        notBlacklisted(to)
+        returns (bool)
+    {
         super.transfer(to, shares);
 
         uint48 ts = Time.timestamp();
@@ -317,7 +333,15 @@ contract FirelightVault is
         address from,
         address to,
         uint256 shares
-    ) public override(ERC20Upgradeable, IERC20) whenNotPaused notBlacklisted(from) returns (bool) {
+    )
+        public
+        override(ERC20Upgradeable, IERC20)
+        whenNotPaused
+        notBlacklisted(_msgSender())
+        notBlacklisted(from)
+        notBlacklisted(to)
+        returns (bool)
+    {
         super.transferFrom(from, to, shares);
 
         uint48 ts = Time.timestamp();
@@ -336,7 +360,15 @@ contract FirelightVault is
     function deposit(
         uint256 assets,
         address receiver
-    ) public override whenNotPaused notBlacklisted(_msgSender()) nonReentrant returns (uint256) {
+    )
+        public
+        override
+        whenNotPaused
+        notBlacklisted(_msgSender())
+        notBlacklisted(receiver)
+        nonReentrant
+        returns (uint256)
+    {
         if (assets == 0) revert InvalidAmount();
 
         (uint256 shares, uint256 _totalSupply, uint256 _totalAssets) = _previewTotals(
@@ -369,7 +401,16 @@ contract FirelightVault is
         uint256 shares,
         address receiver,
         address owner
-    ) public override whenNotPaused notBlacklisted(owner) nonReentrant returns (uint256) {
+    )
+        public
+        override
+        whenNotPaused
+        notBlacklisted(_msgSender())
+        notBlacklisted(owner)
+        notBlacklisted(receiver)
+        nonReentrant
+        returns (uint256)
+    {
         if (shares == 0) revert InvalidAmount();
 
         (uint256 assets, uint256 _totalSupply, uint256 _totalAssets) = _previewTotals(
@@ -397,7 +438,16 @@ contract FirelightVault is
         uint256 assets,
         address receiver,
         address owner
-    ) public override whenNotPaused notBlacklisted(owner) nonReentrant returns (uint256) {
+    )
+        public
+        override
+        whenNotPaused
+        notBlacklisted(_msgSender())
+        notBlacklisted(owner)
+        notBlacklisted(receiver)
+        nonReentrant
+        returns (uint256)
+    {
         if (assets == 0) revert InvalidAmount();
 
         (uint256 shares, uint256 _totalSupply, uint256 _totalAssets) = _previewTotals(assets, true, Math.Rounding.Ceil);
