@@ -43,7 +43,7 @@ describe('Pause test', function() {
   })
 
   it('reverts when trying to claim a withdraw if the contract is paused', async () => {
-    await time.increase(config.period_init_duration)
+    await time.increase(config.period_configuration_duration)
     await expect(firelight_vault.connect(users[0]).claimWithdraw(withdraw_period)).to.be.revertedWithCustomError(firelight_vault, 'EnforcedPause')
   })
 
@@ -57,7 +57,7 @@ describe('Pause test', function() {
   })
 
   it('allows to complete withdraw once unpaused', async () => {
-    await time.increase(config.period_init_duration)
+    await time.increase(config.period_configuration_duration)
 
     await (await firelight_vault.connect(users[0]).claimWithdraw(withdraw_period)).wait()
     const shares = await firelight_vault.balanceOf(users[0].address)

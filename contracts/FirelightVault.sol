@@ -35,18 +35,18 @@ contract FirelightVault is
      * @param limitUpdater Address assigned the DEPOSIT_LIMIT_UPDATE_ROLE at initialization.
      * @param blacklister Address assigned the BLACKLIST_ROLE at initialization.
      * @param pauser Address assigned the PAUSE_ROLE at initialization.
-     * @param periodInitUpdater Address assigned the PERIOD_INIT_UPDATE_ROLE at initialization.
+     * @param periodConfigurationUpdater Address assigned the PERIOD_INIT_UPDATE_ROLE at initialization.
      * @param depositLimit Initial total deposit limit.
-     * @param periodInitDuration Initial period duration of the vault.
+     * @param periodConfigurationDuration Initial period duration of the vault.
      */
     struct InitParams {
         address defaultAdmin;
         address limitUpdater;
         address blacklister;
         address pauser;
-        address periodInitUpdater;
+        address periodConfigurationUpdater;
         uint256 depositLimit;
-        uint48 periodInitDuration;
+        uint48 periodConfigurationDuration;
     }
 
     /**
@@ -56,10 +56,10 @@ contract FirelightVault is
     event DepositLimitUpdated(uint256 limit);
 
     /**
-     * @notice Emitted when a new periodInit is added.
-     * @param periodInit The details of the newly added periodInit.
+     * @notice Emitted when a new periodConfiguration is added.
+     * @param periodConfiguration The details of the newly added periodConfiguration.
      */
-    event PeriodInitAdded(PeriodInit periodInit);
+    event PeriodConfigurationAdded(PeriodConfiguration periodConfiguration);
 
     /**
      * @notice Emitted when a withdrawal request is created by a user.
@@ -90,15 +90,15 @@ contract FirelightVault is
     error BlacklistedAddress();
     error DepositLimitExceeded();
     error InvalidDepositLimit();
-    error InvalidPeriodInitEpoch();
-    error InvalidPeriodInitDuration();
+    error InvalidPeriodConfigurationEpoch();
+    error InvalidPeriodConfigurationDuration();
     error InsufficientShares();
     error InvalidAssetAddress();
     error InvalidAdminAddress();
     error InvalidAddress();
     error InvalidAmount();
     error InvalidPeriod();
-    error CurrentPeriodInitNotLast();
+    error CurrentPeriodConfigurationNotLast();
     error AlreadyClaimedPeriod();
     error NoWithdrawalAmount();
 
@@ -136,8 +136,8 @@ contract FirelightVault is
             revert InvalidDepositLimit();
         }
 
-        if (initParams.periodInitDuration == 0) {
-            revert InvalidPeriodInitDuration();
+        if (initParams.periodConfigurationDuration == 0) {
+            revert InvalidPeriodConfigurationDuration();
         }
 
         if (initParams.defaultAdmin == address(0)) {
@@ -145,7 +145,7 @@ contract FirelightVault is
         }
 
         depositLimit = initParams.depositLimit;
-        _addPeriodInit(Time.timestamp(), initParams.periodInitDuration);
+        _addPeriodConfiguration(Time.timestamp(), initParams.periodConfigurationDuration);
         contractVersion = 1;
 
         _grantRole(DEFAULT_ADMIN_ROLE, initParams.defaultAdmin);
@@ -162,65 +162,65 @@ contract FirelightVault is
             _grantRole(PAUSE_ROLE, initParams.pauser);
         }
 
-        if (initParams.periodInitUpdater != address(0)) {
-            _grantRole(PERIOD_INIT_UPDATE_ROLE, initParams.periodInitUpdater);
+        if (initParams.periodConfigurationUpdater != address(0)) {
+            _grantRole(PERIOD_INIT_UPDATE_ROLE, initParams.periodConfigurationUpdater);
         }
     }
 
     /**
-     * @notice Returns the period init corresponding to a given timestamp.
-     * @dev Return value may be unreliable if timestamp given is far away in the future given that new periodInits can be added after nextPeriodEnd().
-     * @param timestamp The timestamp to find the period init for.
-     * @return The period init corresponding to the given timestamp.
+     * @notice Returns the period configuration corresponding to a given timestamp.
+     * @dev Return value may be unreliable if timestamp given is far away in the future given that new period configurations can be added after nextPeriodEnd().
+     * @param timestamp The timestamp to find the period configuration for.
+     * @return The period configuration corresponding to the given timestamp.
      */
-    function periodInitAtTimestamp(uint48 timestamp) public view returns (PeriodInit memory) {
-        if (periodInits.length == 0) revert InvalidPeriod();
+    function periodConfigurationAtTimestamp(uint48 timestamp) public view returns (PeriodConfiguration memory) {
+        if (periodConfigurations.length == 0) revert InvalidPeriod();
 
-        PeriodInit memory periodInit;
-        for (uint i = 0; i < periodInits.length; i++) {
-            if (timestamp < periodInits[i].epoch)
+        PeriodConfiguration memory periodConfiguration;
+        for (uint i = 0; i < periodConfigurations.length; i++) {
+            if (timestamp < periodConfigurations[i].epoch)
                 break;
-            periodInit = periodInits[i];
+            periodConfiguration = periodConfigurations[i];
         }
-        if (periodInit.epoch == 0) revert InvalidPeriod();
-        return periodInit;
+        if (periodConfiguration.epoch == 0) revert InvalidPeriod();
+        return periodConfiguration;
     }
 
     /**
-     * @notice Returns the period init corresponding to a given period number.
-     * @dev Return value may be unreliable if period number given is far away in the future given that new periodInits can be added after nextPeriodEnd().
-     * @param periodNumber The period number to find the period init for.
-     * @return The period init corresponding to the given period number.
+     * @notice Returns the period configuration corresponding to a given period number.
+     * @dev Return value may be unreliable if period number given is far away in the future given that new period configurations can be added after nextPeriodEnd().
+     * @param periodNumber The period number to find the period configuration for.
+     * @return The period configuration corresponding to the given period number.
      */
-    function periodInitAtNumber(uint periodNumber) external view returns (PeriodInit memory) {
-        if (periodInits.length == 0) revert InvalidPeriod();
+    function periodConfigurationAtNumber(uint periodNumber) external view returns (PeriodConfiguration memory) {
+        if (periodConfigurations.length == 0) revert InvalidPeriod();
 
-        PeriodInit memory periodInit;
-        for (uint i = 0; i < periodInits.length; i++) {
-            if (periodNumber < periodInits[i].startingPeriod)
+        PeriodConfiguration memory periodConfiguration;
+        for (uint i = 0; i < periodConfigurations.length; i++) {
+            if (periodNumber < periodConfigurations[i].startingPeriod)
                 break;
-            periodInit = periodInits[i];
+            periodConfiguration = periodConfigurations[i];
         }
-        if (periodInit.epoch == 0) revert InvalidPeriod();
-        return periodInit;
+        if (periodConfiguration.epoch == 0) revert InvalidPeriod();
+        return periodConfiguration;
     }
 
     /**
      * @notice Returns the period number for the timestamp given.
-     * @dev Return value may be unreliable if period number given is far away in the future given that new periodInits can be added after nextPeriodEnd().
+     * @dev Return value may be unreliable if period number given is far away in the future given that new period configurations can be added after nextPeriodEnd().
      * @return The period number corresponding to the given timestamp.
      */
     function periodAtTimestamp(uint48 timestamp) public view returns (uint256) {
-        PeriodInit memory periodInit = periodInitAtTimestamp(timestamp);
-        return periodInit.startingPeriod + _sinceEpoch(periodInit.epoch) / periodInit.duration;
+        PeriodConfiguration memory periodConfiguration = periodConfigurationAtTimestamp(timestamp);
+        return periodConfiguration.startingPeriod + _sinceEpoch(periodConfiguration.epoch) / periodConfiguration.duration;
     }
 
     /**
-     * @notice Returns the period init for the current period.
-     * @return The period init corresponding to the current period.
+     * @notice Returns the period configuration for the current period.
+     * @return The period configuration corresponding to the current period.
      */
-    function currentPeriodInit() public view returns (PeriodInit memory) {
-        return periodInitAtTimestamp(Time.timestamp());
+    function currentPeriodConfiguration() public view returns (PeriodConfiguration memory) {
+        return periodConfigurationAtTimestamp(Time.timestamp());
     }
 
     /**
@@ -236,7 +236,7 @@ contract FirelightVault is
      * @return Timestamp of the current period start.
      */
     function currentPeriodStart() external view returns (uint48) {
-        PeriodInit memory currentPC = currentPeriodInit();
+        PeriodConfiguration memory currentPC = currentPeriodConfiguration();
         return currentPC.epoch + (_sinceEpoch(currentPC.epoch) / currentPC.duration) * currentPC.duration;
     }
 
@@ -245,7 +245,7 @@ contract FirelightVault is
      * @return Timestamp of the current period end.
      */
     function currentPeriodEnd() public view returns (uint48) {
-        PeriodInit memory currentPC = currentPeriodInit();
+        PeriodConfiguration memory currentPC = currentPeriodConfiguration();
         return currentPC.epoch + (_sinceEpoch(currentPC.epoch) / currentPC.duration + 1) * currentPC.duration;
     }
 
@@ -255,7 +255,7 @@ contract FirelightVault is
      */
     function nextPeriodEnd() public view returns (uint48) {
         uint48 currentEnd = currentPeriodEnd();
-        return currentEnd + periodInitAtTimestamp(currentEnd).duration;
+        return currentEnd + periodConfigurationAtTimestamp(currentEnd).duration;
     }
 
     /**
@@ -338,12 +338,12 @@ contract FirelightVault is
     }
 
     /**
-     * @notice Adds a period init. Requires PERIOD_INIT_UPDATE_ROLE.
+     * @notice Adds a period configuration. Requires PERIOD_INIT_UPDATE_ROLE.
      * @param epoch The epoch timestamp.
      * @param duration The period duration.
      */
-    function addPeriodInit(uint48 epoch, uint48 duration) external onlyRole(PERIOD_INIT_UPDATE_ROLE) {
-        _addPeriodInit(epoch, duration);
+    function addPeriodConfiguration(uint48 epoch, uint48 duration) external onlyRole(PERIOD_INIT_UPDATE_ROLE) {
+        _addPeriodConfiguration(epoch, duration);
     }
 
     /**
@@ -626,28 +626,28 @@ contract FirelightVault is
         return Time.timestamp() - epoch;
     }
 
-    function _addPeriodInit(uint48 newEpoch, uint48 newDuration) private {
-        if (newDuration < SMALLEST_PERIOD_DURATION || newDuration % SMALLEST_PERIOD_DURATION != 0) revert InvalidPeriodInitDuration();
+    function _addPeriodConfiguration(uint48 newEpoch, uint48 newDuration) private {
+        if (newDuration < SMALLEST_PERIOD_DURATION || newDuration % SMALLEST_PERIOD_DURATION != 0) revert InvalidPeriodConfigurationDuration();
 
         uint startingPeriod;
-        if (periodInits.length > 0) {
-            PeriodInit memory currentPC = currentPeriodInit();
-            if (currentPC.epoch != periodInits[periodInits.length - 1].epoch) revert CurrentPeriodInitNotLast();
-            if (newEpoch < nextPeriodEnd() || (newEpoch - currentPC.epoch) % currentPC.duration != 0) revert InvalidPeriodInitEpoch();
+        if (periodConfigurations.length > 0) {
+            PeriodConfiguration memory currentPC = currentPeriodConfiguration();
+            if (currentPC.epoch != periodConfigurations[periodConfigurations.length - 1].epoch) revert CurrentPeriodConfigurationNotLast();
+            if (newEpoch < nextPeriodEnd() || (newEpoch - currentPC.epoch) % currentPC.duration != 0) revert InvalidPeriodConfigurationEpoch();
 
             startingPeriod = currentPC.startingPeriod + (newEpoch - currentPC.epoch) / currentPC.duration;
         } else {
-            if (newEpoch < Time.timestamp()) revert InvalidPeriodInitEpoch();
+            if (newEpoch < Time.timestamp()) revert InvalidPeriodConfigurationEpoch();
 
             startingPeriod = 0;
         }
 
-        PeriodInit memory newPeriod = PeriodInit({
+        PeriodConfiguration memory newPeriod = PeriodConfiguration({
             epoch: newEpoch,
             duration: newDuration,
             startingPeriod: startingPeriod
         });
-        periodInits.push(newPeriod);
-        emit PeriodInitAdded(newPeriod);
+        periodConfigurations.push(newPeriod);
+        emit PeriodConfigurationAdded(newPeriod);
     }
 }

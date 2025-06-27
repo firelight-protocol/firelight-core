@@ -27,7 +27,7 @@ describe('Mint, burn, logs and allowance', function () {
     })
    
     it('move forward one period and should revert if trying to call burn without BURNER_ROLE', async () => {
-      await time.increase(config.period_duration)
+      await time.increase(config.period_configuration_duration)
       const burn_attempt = firelight_vault.connect(users[0]).burn(1, minter.address)
       await expect(burn_attempt).to.be.revertedWithCustomError(firelight_vault, 'AccessControlUnauthorizedAccount')
     })
@@ -55,15 +55,15 @@ describe('Mint, burn, logs and allowance', function () {
       const now = await time.latest()
 
       //totalSypply
-      expect(await firelight_vault.totalSupplyAt(now - config.period_duration)).to.be.eq(DEPOSITS_SUM) // 150
+      expect(await firelight_vault.totalSupplyAt(now - config.period_configuration_duration)).to.be.eq(DEPOSITS_SUM) // 150
       expect(await firelight_vault.totalSupplyAt(now)).to.be.eq(DEPOSITS_SUM - DEPOSITS[0]) // 100
 
       // user[0]
-      expect(await firelight_vault.balanceOfAt(users[0].address, now - config.period_duration)).to.be.eq(DEPOSITS[0]) // 50
+      expect(await firelight_vault.balanceOfAt(users[0].address, now - config.period_configuration_duration)).to.be.eq(DEPOSITS[0]) // 50
       expect(await firelight_vault.balanceOfAt(users[0].address, now)).to.be.eq(0) // 0
 
       //totalShould not have changed
-      expect(await firelight_vault.totalAssetsAt(now - config.period_duration)).to.be.eq(DEPOSITS_SUM) // 150
+      expect(await firelight_vault.totalAssetsAt(now - config.period_configuration_duration)).to.be.eq(DEPOSITS_SUM) // 150
       expect(await firelight_vault.totalAssetsAt(now)).to.be.eq(DEPOSITS_SUM) // 150
     })
 
@@ -78,12 +78,12 @@ describe('Mint, burn, logs and allowance', function () {
       const tenMin = 60 * 10
 
       //totalSypply
-      expect(await firelight_vault.totalSupplyAt(now - (config.period_duration + tenMin))).to.be.eq(DEPOSITS_SUM) // 150
+      expect(await firelight_vault.totalSupplyAt(now - (config.period_configuration_duration + tenMin))).to.be.eq(DEPOSITS_SUM) // 150
       expect(await firelight_vault.totalSupplyAt(now - (tenMin))).to.be.eq(DEPOSITS_SUM - DEPOSITS[0]) // 100
       expect(await firelight_vault.totalSupplyAt(now)).to.be.eq(DEPOSITS_SUM) // 150
 
       // user[0]
-      expect(await firelight_vault.balanceOfAt(users[0].address, now - (config.period_duration + tenMin ))).to.be.eq(DEPOSITS[0]) // 50
+      expect(await firelight_vault.balanceOfAt(users[0].address, now - (config.period_configuration_duration + tenMin ))).to.be.eq(DEPOSITS[0]) // 50
       expect(await firelight_vault.balanceOfAt(users[0].address, now - (tenMin))).to.be.eq(0) // 0
       expect(await firelight_vault.balanceOfAt(users[0].address, now)).to.be.eq(DEPOSITS[0]) // 50
     })
@@ -120,7 +120,7 @@ describe('Mint, burn, logs and allowance', function () {
     })
 
     it('move forward two periods and user[2] claims tokens redeemed by user[1]', async () => {
-      await time.increase(config.period_duration * 2)
+      await time.increase(config.period_configuration_duration * 2)
 
       await expect(firelight_vault.connect(users[2]).claimWithdraw((await firelight_vault.currentPeriod()) - 1n))
         .to.changeTokenBalances(token_contract, [firelight_vault, users[2]], [- DEPOSITS[0]/2n, DEPOSITS[0]/2n])
@@ -132,7 +132,7 @@ describe('Mint, burn, logs and allowance', function () {
 
     it('check history', async () => {
       const now = await time.latest()
-      const beforeTwoPeriods = now - (config.period_duration * 2 + 10)
+      const beforeTwoPeriods = now - (config.period_configuration_duration * 2 + 10)
 
       // totalSupply
       expect(await firelight_vault.totalSupplyAt(beforeTwoPeriods)).to.be.eq(DEPOSITS_SUM)

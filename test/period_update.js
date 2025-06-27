@@ -16,12 +16,12 @@ describe('Period update test', function() {
   const DECIMALS = 6,
         INITIAL_DEPOSIT_LIMIT =  ethers.parseUnits('20000', DECIMALS), // 20k tokens
         DEPOSIT_AMOUNT = ethers.parseUnits('10000', DECIMALS),         // 10k tokens
-        PERIOD_INIT_DURATION = 172800,                                 // 2 days
+        PERIOD_CONFIGURATION_DURATION = 172800,                        // 2 days
         PERIOD_TARGET_DURATION = 604800                                // 1 week
 
   before(async () => {
-    ({ token_contract, firelight_vault, period_init_updater, users, utils, config } = await loadFixture(
-      deployVault.bind(null, { decimals:DECIMALS, initial_deposit_limit: INITIAL_DEPOSIT_LIMIT, period_init_duration: PERIOD_INIT_DURATION })
+    ({ token_contract, firelight_vault, period_configuration_updater, users, utils, config } = await loadFixture(
+      deployVault.bind(null, { decimals:DECIMALS, initial_deposit_limit: INITIAL_DEPOSIT_LIMIT, period_configuration_duration: PERIOD_CONFIGURATION_DURATION })
     ))
 
     // Fund the users with underlying, and approve the vault to spend users' tokens
@@ -34,7 +34,7 @@ describe('Period update test', function() {
   })
 
   it('should validate initial period duration', async () => {
-    expect(await current_period_duration()).to.equal(PERIOD_INIT_DURATION)
+    expect(await current_period_duration()).to.equal(PERIOD_CONFIGURATION_DURATION)
 
     await time.increase(await current_period_duration())
 
@@ -44,23 +44,23 @@ describe('Period update test', function() {
   it('reverts when providing a duration lesser than or not divisible by SMALLEST_PERIOD_DURATION', async () => {
     const new_epoch = 0,
           duration = 3600
-    const small_duration_update_attempt = firelight_vault.connect(period_init_updater).addPeriodInit(new_epoch, duration)
-    await expect(small_duration_update_attempt).to.be.revertedWithCustomError(firelight_vault, 'InvalidPeriodInitDuration')
+    const small_duration_update_attempt = firelight_vault.connect(period_configuration_updater).addPeriodConfiguration(new_epoch, duration)
+    await expect(small_duration_update_attempt).to.be.revertedWithCustomError(firelight_vault, 'InvalidPeriodConfigurationDuration')
 
-    const not_divisible_duration_update_attempt = firelight_vault.connect(period_init_updater).addPeriodInit(new_epoch, duration * 25)
-    await expect(not_divisible_duration_update_attempt).to.be.revertedWithCustomError(firelight_vault, 'InvalidPeriodInitDuration')
+    const not_divisible_duration_update_attempt = firelight_vault.connect(period_configuration_updater).addPeriodConfiguration(new_epoch, duration * 25)
+    await expect(not_divisible_duration_update_attempt).to.be.revertedWithCustomError(firelight_vault, 'InvalidPeriodConfigurationDuration')
   })
 
   it('reverts when providing an epoch lesser than the next period end, or not divisible by the current period duration', async () => {
     const current_period_end = await firelight_vault.currentPeriodEnd(),
           early_epoch = Number(current_period_end),
           not_divisible_epoch = Number(current_period_end) + await current_period_duration() + 1
-    
-    const early_epoch_update_attempt = firelight_vault.connect(period_init_updater).addPeriodInit(early_epoch, PERIOD_TARGET_DURATION)
-    await expect(early_epoch_update_attempt).to.be.revertedWithCustomError(firelight_vault, 'InvalidPeriodInitEpoch')
 
-    const not_divisible_duration_update_attempt = firelight_vault.connect(period_init_updater).addPeriodInit(not_divisible_epoch, PERIOD_TARGET_DURATION)
-    await expect(not_divisible_duration_update_attempt).to.be.revertedWithCustomError(firelight_vault, 'InvalidPeriodInitEpoch')
+    const early_epoch_update_attempt = firelight_vault.connect(period_configuration_updater).addPeriodConfiguration(early_epoch, PERIOD_TARGET_DURATION)
+    await expect(early_epoch_update_attempt).to.be.revertedWithCustomError(firelight_vault, 'InvalidPeriodConfigurationEpoch')
+
+    const not_divisible_duration_update_attempt = firelight_vault.connect(period_configuration_updater).addPeriodConfiguration(not_divisible_epoch, PERIOD_TARGET_DURATION)
+    await expect(not_divisible_duration_update_attempt).to.be.revertedWithCustomError(firelight_vault, 'InvalidPeriodConfigurationEpoch')
   })
 
   it('increases the period duration', async () => {
@@ -68,9 +68,9 @@ describe('Period update test', function() {
     const current_period_end = await firelight_vault.currentPeriodEnd(),
           new_epoch = Number(current_period_end) + await current_period_duration()
 
-    await firelight_vault.connect(period_init_updater).addPeriodInit(new_epoch, PERIOD_TARGET_DURATION)
+    await firelight_vault.connect(period_configuration_updater).addPeriodConfiguration(new_epoch, PERIOD_TARGET_DURATION)
 
-    const [period_epoch, period_duration, period_start] = await firelight_vault.periodInits(1),
+    const [period_epoch, period_duration, period_start] = await firelight_vault.periodConfigurations(1),
           current_period = await firelight_vault.currentPeriod()
 
     expect(period_epoch).to.equal(new_epoch)
@@ -86,8 +86,8 @@ describe('Period update test', function() {
     const current_period_end = await firelight_vault.currentPeriodEnd(),
           new_epoch = Number(current_period_end) + await current_period_duration()
 
-    const update_attempt = firelight_vault.connect(period_init_updater).addPeriodInit(new_epoch, PERIOD_TARGET_DURATION)
-    await expect(update_attempt).to.be.revertedWithCustomError(firelight_vault, 'CurrentPeriodInitNotLast')
+    const update_attempt = firelight_vault.connect(period_configuration_updater).addPeriodConfiguration(new_epoch, PERIOD_TARGET_DURATION)
+    await expect(update_attempt).to.be.revertedWithCustomError(firelight_vault, 'CurrentPeriodConfigurationNotLast')
   })
 
   it('reverts when trying to complete the withdraw before the next period', async () => {

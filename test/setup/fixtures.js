@@ -6,7 +6,7 @@ const DEFAULT_CONFIG = {
   underlying: 'fXRP',
   lst: 'stfXRP',
   initial_deposit_limit: '50000000000',    // 50k tokens
-  period_init_duration: 604800             // 1 week
+  period_configuration_duration: 604800             // 1 week
 }
 
 const deployVault = async (config = {}) => {
@@ -15,8 +15,8 @@ const deployVault = async (config = {}) => {
   let token_contract, firelight_vault
 
   ({ token_contract, asset_manager } = await deployFAsset([config.underlying, config.underlying, 'Ripple', 'XRP', config.decimals]))
-  let [deployer, minter, burner, blacklister, pauser, limit_updater, period_init_updater, user1, user2, user3] = await ethers.getSigners()
-  
+  let [deployer, minter, burner, blacklister, pauser, limit_updater, period_configuration_updater, user1, user2, user3] = await ethers.getSigners()
+
   const FirelightVaultFactory = await ethers.getContractFactory('FirelightVault')
 
   const InitParams = {
@@ -24,9 +24,9 @@ const deployVault = async (config = {}) => {
     limitUpdater: limit_updater.address,
     blacklister: blacklister.address,
     pauser: pauser.address,
-    periodInitUpdater: period_init_updater.address,
+    periodConfigurationUpdater: period_configuration_updater.address,
     depositLimit: config.initial_deposit_limit,
-    periodInitDuration: config.period_init_duration
+    periodConfigurationDuration: config.period_configuration_duration
   }
   const init_params = abi_coder.encode(['address','address','address','address','address','uint256','uint48'], Object.values(InitParams))
 
@@ -55,7 +55,7 @@ const deployVault = async (config = {}) => {
     blacklister,
     pauser,
     limit_updater,
-    period_init_updater,
+    period_configuration_updater,
     users: [ user1, user2, user3 ],
     utils,
     config

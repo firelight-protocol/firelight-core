@@ -26,14 +26,14 @@ abstract contract FirelightVaultStorage {
     /// @notice The total amount of assets pending withdrawal across all periods.
     uint256 public pendingWithdrawAssets;
 
-    struct PeriodInit {
+    struct PeriodConfiguration {
         uint48 epoch;
         uint48 duration;
         uint startingPeriod;
     }
 
-    /// @notice Array of period definitions consisting of an starting timestamp (epoch), starting period number (startingPeriod) and period duration (duration).
-    PeriodInit[] public periodInits;
+    /// @notice Array of period configurations consisting of an starting timestamp (epoch), starting period number (startingPeriod) and period duration (duration).
+    PeriodConfiguration[] public periodConfigurations;
 
     /// @notice Total shares allocated for withdrawals in a given period.
     mapping(uint256 period => uint256 shares) public withdrawShares;
