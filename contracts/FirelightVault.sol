@@ -168,30 +168,94 @@ contract FirelightVault is
     }
 
     /**
+     * @notice Returns the period init corresponding to a given timestamp.
+     * @dev Return value may be unreliable if timestamp given is far away in the future given that new periodInits can be added after nextPeriodEnd().
+     * @param timestamp The timestamp to find the period init for.
+     * @return The period init corresponding to the given timestamp.
+     */
+    function periodInitAtTimestamp(uint48 timestamp) public view returns (PeriodInit memory) {
+        if (periodInits.length == 0) revert InvalidPeriod();
+
+        PeriodInit memory periodInit;
+        for (uint i = 0; i < periodInits.length; i++) {
+            if (timestamp < periodInits[i].epoch)
+                break;
+            periodInit = periodInits[i];
+        }
+        if (periodInit.epoch == 0) revert InvalidPeriod();
+        return periodInit;
+    }
+
+    /**
+     * @notice Returns the period init corresponding to a given period number.
+     * @dev Return value may be unreliable if period number given is far away in the future given that new periodInits can be added after nextPeriodEnd().
+     * @param periodNumber The period number to find the period init for.
+     * @return The period init corresponding to the given period number.
+     */
+    function periodInitAtNumber(uint periodNumber) external view returns (PeriodInit memory) {
+        if (periodInits.length == 0) revert InvalidPeriod();
+
+        PeriodInit memory periodInit;
+        for (uint i = 0; i < periodInits.length; i++) {
+            if (periodNumber < periodInits[i].startingPeriod)
+                break;
+            periodInit = periodInits[i];
+        }
+        if (periodInit.epoch == 0) revert InvalidPeriod();
+        return periodInit;
+    }
+
+    /**
+     * @notice Returns the period number for the timestamp given.
+     * @dev Return value may be unreliable if period number given is far away in the future given that new periodInits can be added after nextPeriodEnd().
+     * @return The period number corresponding to the given timestamp.
+     */
+    function periodAtTimestamp(uint48 timestamp) public view returns (uint256) {
+        PeriodInit memory periodInit = periodInitAtTimestamp(timestamp);
+        return periodInit.startingPeriod + _sinceEpoch(periodInit.epoch) / periodInit.duration;
+    }
+
+    /**
+     * @notice Returns the period init for the current period.
+     * @return The period init corresponding to the current period.
+     */
+    function currentPeriodInit() public view returns (PeriodInit memory) {
+        return periodInitAtTimestamp(Time.timestamp());
+    }
+
+    /**
      * @notice Returns the current active period.
      * @return The current period number since contract deployment.
      */
     function currentPeriod() public view returns (uint256) {
-        PeriodInit memory currentPeriodInit = _currentPeriodInit();
-        return currentPeriodInit.startingPeriod + _sinceEpoch(currentPeriodInit.epoch) / currentPeriodInit.duration;        
+        return periodAtTimestamp(Time.timestamp());
     }
 
     /**
      * @notice Returns the start timestamp of the current period.
-     * @return Timestamp of the current start period.
+     * @return Timestamp of the current period start.
      */
     function currentPeriodStart() external view returns (uint48) {
-        PeriodInit memory currentPeriodInit = _currentPeriodInit();
-        return currentPeriodInit.epoch + (_sinceEpoch(currentPeriodInit.epoch) / currentPeriodInit.duration) * currentPeriodInit.duration;
+        PeriodInit memory currentPC = currentPeriodInit();
+        return currentPC.epoch + (_sinceEpoch(currentPC.epoch) / currentPC.duration) * currentPC.duration;
     }
 
     /**
      * @notice Returns the end timestamp of the current period.
-     * @return Timestamp of the current end period.
+     * @return Timestamp of the current period end.
      */
     function currentPeriodEnd() public view returns (uint48) {
-        PeriodInit memory currentPeriodInit = _currentPeriodInit();
-        return currentPeriodInit.epoch + (_sinceEpoch(currentPeriodInit.epoch) / currentPeriodInit.duration + 1) * currentPeriodInit.duration;
+        PeriodInit memory currentPC = currentPeriodInit();
+        return currentPC.epoch + (_sinceEpoch(currentPC.epoch) / currentPC.duration + 1) * currentPC.duration;
+    }
+
+    /**
+     * @notice Returns the end timestamp of the period following the current period.
+     * @return Timestamp of the next period end.
+     */
+    function nextPeriodEnd() public view returns (uint48) {
+        uint48 currentEnd = currentPeriodEnd();
+        return currentEnd + periodInitAtTimestamp(currentEnd).duration;
     }
 
     /**
@@ -562,38 +626,16 @@ contract FirelightVault is
         return Time.timestamp() - epoch;
     }
 
-    function _periodInitAt(uint48 timestamp) private view returns (PeriodInit memory) {
-        if (periodInits.length == 0) revert InvalidPeriod();
-
-        PeriodInit memory periodInit;
-        for (uint i = 0; i < periodInits.length; i++) {
-            if (timestamp < periodInits[i].epoch)
-                break;
-            periodInit = periodInits[i];
-        }
-        if (periodInit.epoch == 0) revert InvalidPeriod();
-        return periodInit;
-    }
-
-    function _currentPeriodInit() private view returns (PeriodInit memory) {
-        return _periodInitAt(Time.timestamp());
-    }
-
-    function _nextPeriodEnd() private view returns (uint48) {
-        uint48 currentEnd = currentPeriodEnd();
-        return currentEnd + _periodInitAt(currentEnd).duration;
-    }
-
     function _addPeriodInit(uint48 newEpoch, uint48 newDuration) private {
         if (newDuration < SMALLEST_PERIOD_DURATION || newDuration % SMALLEST_PERIOD_DURATION != 0) revert InvalidPeriodInitDuration();
 
         uint startingPeriod;
         if (periodInits.length > 0) {
-            PeriodInit memory currentPeriodInit = _currentPeriodInit();
-            if (currentPeriodInit.epoch != periodInits[periodInits.length - 1].epoch) revert CurrentPeriodInitNotLast();
-            if (newEpoch < _nextPeriodEnd() || (newEpoch - currentPeriodInit.epoch) % currentPeriodInit.duration != 0) revert InvalidPeriodInitEpoch();
+            PeriodInit memory currentPC = currentPeriodInit();
+            if (currentPC.epoch != periodInits[periodInits.length - 1].epoch) revert CurrentPeriodInitNotLast();
+            if (newEpoch < nextPeriodEnd() || (newEpoch - currentPC.epoch) % currentPC.duration != 0) revert InvalidPeriodInitEpoch();
 
-            startingPeriod = currentPeriodInit.startingPeriod + (newEpoch - currentPeriodInit.epoch) / currentPeriodInit.duration;
+            startingPeriod = currentPC.startingPeriod + (newEpoch - currentPC.epoch) / currentPC.duration;
         } else {
             if (newEpoch < Time.timestamp()) revert InvalidPeriodInitEpoch();
 
