@@ -79,6 +79,23 @@ contract FirelightVault is
      */
     event CompleteWithdraw(address indexed receiver, uint256 assets, uint256 period);
 
+    /**
+     * @notice Emitted when a user with RESCUER_ROLE successfully rescues shares from a blacklisted address.
+     * @param from The blacklisted address.
+     * @param to The beneficiary of the rescued shares.
+     * @param rescuedShares The amount of shares rescued.
+     */
+    event SharesRescuedFromBlacklisted(address from, address to, uint256 rescuedShares);
+
+    /**
+     * @notice Emitted when a user with RESCUER_ROLE successfully rescues a pending withdrawal from blacklisted address.
+     * @param from The blacklisted address.
+     * @param to The beneficiary of the rescued withdrawals.
+     * @param periods The array of periods rescued.
+     * @param rescuedShares The array of pending shares from withdrawals rescued for each period.
+     */
+    event WithdrawRescuedFromBlacklisted(address from, address to, uint256[] periods, uint256[] rescuedShares);
+
     error BlacklistedAddress();
     error DepositLimitExceeded();
     error InvalidDepositLimit();
@@ -88,8 +105,9 @@ contract FirelightVault is
     error InvalidAddress();
     error InvalidAmount();
     error InvalidPeriod();
-    error AlreadyClaimedPeriod();
-    error NoWithdrawalAmount();
+    error InvalidArrayLength();
+    error AlreadyClaimedPeriod(uint256 period);
+    error NoWithdrawalAmount(uint256 period);
 
     modifier notBlacklisted(address account) {
         if (isBlacklisted[account]) {
@@ -265,28 +283,6 @@ contract FirelightVault is
     }
 
     /**
-     * @notice Mints shares to a specified receiver. Requires MINTER_ROLE.
-     * @param shares Amount of shares to mint.
-     * @param receiver Address receiving the shares.
-     * @return Number of shares minted.
-     */
-    function mint(uint256 shares, address receiver) public override onlyRole(MINTER_ROLE) returns (uint256) {
-        _mint(receiver, shares);
-        _logTrace(receiver, balanceOf(receiver), totalSupply(), 0, false);
-        return shares;
-    }
-
-    /**
-     * @notice Burns shares from an owner's balance. Requires BURNER_ROLE.
-     * @param shares Number of shares to burn.
-     * @param owner Shares' owner.
-     */
-    function burn(uint256 shares, address owner) external onlyRole(BURNER_ROLE) {
-        _burn(owner, shares);
-        _logTrace(owner, balanceOf(owner), totalSupply(), 0, false);
-    }
-
-    /**
      * @notice Transfers shares to an address, with blacklist and pause checks.
      * @param to Recipient address.
      * @param shares Number of shares to transfer.
@@ -423,7 +419,7 @@ contract FirelightVault is
         if (period >= currentPeriod()) revert InvalidPeriod();
 
         address sender = _msgSender();
-        if (isWithdrawClaimed[period][sender]) revert AlreadyClaimedPeriod();
+        if (isWithdrawClaimed[period][sender]) revert AlreadyClaimedPeriod(period);
 
         assets = _convertToAssetsTotals(
             withdrawSharesOf[period][sender],
@@ -432,7 +428,7 @@ contract FirelightVault is
             Math.Rounding.Floor
         );
 
-        if (assets == 0) revert NoWithdrawalAmount();
+        if (assets == 0) revert NoWithdrawalAmount(period);
 
         pendingWithdrawAssets -= assets;
         isWithdrawClaimed[period][sender] = true;
@@ -440,6 +436,70 @@ contract FirelightVault is
         IERC20(asset()).safeTransfer(sender, assets);
 
         emit CompleteWithdraw(sender, assets, period);
+    }
+
+    /**
+     * @notice Rescues shares from a blacklisted address. Requires RESCUER_ROLE.
+     * @param from The blacklisted address.
+     * @param to The address to transfer the shares. Must not be blacklisted.
+     */
+    function rescueSharesFromBlacklisted(
+        address from,
+        address to
+    ) 
+        external 
+        onlyRole(RESCUER_ROLE)
+        onlyBlacklisted(from)
+        notBlacklisted(to)
+    {       
+        uint256 rescuedShares = balanceOf(from);
+        if( rescuedShares == 0) revert InsufficientShares();
+
+        _transfer(from, to, rescuedShares);
+
+        uint48 ts = Time.timestamp();
+        _traceBalanceOf[from].push(ts, 0);
+        _traceBalanceOf[to].push(ts, balanceOf(to));
+
+        emit SharesRescuedFromBlacklisted(from, to, rescuedShares);
+    }
+
+    /**
+    * @notice Rescues pending withdrawals from a blacklisted address. Requires RESCUER_ROLE.
+    * @param from The blacklisted address.
+    * @param to The address to transfer the shares to. Must not be blacklisted.
+    * @param periods An array of periods to rescue.
+    */
+    function rescueWithdrawFromBlacklisted(
+        address from,
+        address to,
+        uint256[] calldata periods
+    ) 
+        external
+        onlyRole(RESCUER_ROLE)
+        onlyBlacklisted(from)
+        notBlacklisted(to)
+    {
+        if (to == address(0)) revert InvalidAddress();
+
+        uint256 len = periods.length;
+        if(len == 0 ) revert InvalidArrayLength();
+
+        uint256[] memory rescuedShares = new uint256[](len);      
+        for (uint256 i = 0; i < len; i++) {
+            uint256 _withdrawOf = withdrawSharesOf[periods[i]][from];
+
+            if (isWithdrawClaimed[periods[i]][from]) revert AlreadyClaimedPeriod(periods[i]);            
+            if (_withdrawOf == 0) revert NoWithdrawalAmount(periods[i]);
+  
+            withdrawSharesOf[periods[i]][to] += _withdrawOf;
+            withdrawSharesOf[periods[i]][from] = 0;
+            isWithdrawClaimed[periods[i]][from] = true;
+            
+            rescuedShares[i] = _withdrawOf;
+        }
+
+        emit WithdrawRescuedFromBlacklisted(from, to, periods, rescuedShares);
     }
 
     function _requestWithdraw(

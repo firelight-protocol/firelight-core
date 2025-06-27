@@ -15,7 +15,7 @@ const deployVault = async (config = {}) => {
   let token_contract, firelight_vault
 
   ({ token_contract, asset_manager } = await deployFAsset([config.underlying, config.underlying, 'Ripple', 'XRP', config.decimals]))
-  let [deployer, minter, burner, blacklister, pauser, limit_updater, user1, user2, user3] = await ethers.getSigners()
+  let [deployer, rescuer, blacklister, pauser, limit_updater, user1, user2, user3] = await ethers.getSigners()
   
   const FirelightVaultFactory = await ethers.getContractFactory('FirelightVault')
 
@@ -32,10 +32,7 @@ const deployVault = async (config = {}) => {
   // Deploy vault using proxy
   firelight_vault = await upgrades.deployProxy(FirelightVaultFactory, [await token_contract.getAddress(), config.lst, config.lst, init_params])
 
-  await Promise.all([
-    firelight_vault.grantRole(await firelight_vault.MINTER_ROLE(), minter.address),
-    firelight_vault.grantRole(await firelight_vault.BURNER_ROLE(), burner.address)
-  ])
+  await firelight_vault.grantRole(await firelight_vault.RESCUER_ROLE(), rescuer.address)
 
   const utils = {
     mintAndApprove: async (amount, user) => {
@@ -49,8 +46,7 @@ const deployVault = async (config = {}) => {
     asset_manager,
     firelight_vault,
     deployer,
-    minter,
-    burner,
+    rescuer,
     blacklister,
     pauser,
     limit_updater,
