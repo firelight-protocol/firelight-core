@@ -35,7 +35,7 @@ contract FirelightVault is
      * @param limitUpdater Address assigned the DEPOSIT_LIMIT_UPDATE_ROLE at initialization.
      * @param blacklister Address assigned the BLACKLIST_ROLE at initialization.
      * @param pauser Address assigned the PAUSE_ROLE at initialization.
-     * @param periodConfigurationUpdater Address assigned the PERIOD_INIT_UPDATE_ROLE at initialization.
+     * @param periodConfigurationUpdater Address assigned the PERIOD_CONFIGURATION_UPDATE_ROLE at initialization.
      * @param depositLimit Initial total deposit limit.
      * @param periodConfigurationDuration Initial period duration of the vault.
      */
@@ -163,7 +163,7 @@ contract FirelightVault is
         }
 
         if (initParams.periodConfigurationUpdater != address(0)) {
-            _grantRole(PERIOD_INIT_UPDATE_ROLE, initParams.periodConfigurationUpdater);
+            _grantRole(PERIOD_CONFIGURATION_UPDATE_ROLE, initParams.periodConfigurationUpdater);
         }
     }
 
@@ -346,11 +346,11 @@ contract FirelightVault is
     }
 
     /**
-     * @notice Adds a period configuration. Requires PERIOD_INIT_UPDATE_ROLE.
+     * @notice Adds a period configuration. Requires PERIOD_CONFIGURATION_UPDATE_ROLE.
      * @param epoch The epoch timestamp.
      * @param duration The period duration.
      */
-    function addPeriodConfiguration(uint48 epoch, uint48 duration) external onlyRole(PERIOD_INIT_UPDATE_ROLE) {
+    function addPeriodConfiguration(uint48 epoch, uint48 duration) external onlyRole(PERIOD_CONFIGURATION_UPDATE_ROLE) {
         _addPeriodConfiguration(epoch, duration);
     }
 

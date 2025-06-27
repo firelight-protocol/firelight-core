@@ -13,7 +13,7 @@ abstract contract FirelightVaultStorage {
     bytes32 public constant BURNER_ROLE = keccak256("BURNER_ROLE");
     bytes32 public constant BLACKLIST_ROLE = keccak256("BLACKLIST_ROLE");
     bytes32 public constant PAUSE_ROLE = keccak256("PAUSE_ROLE");
-    bytes32 public constant PERIOD_INIT_UPDATE_ROLE = keccak256("PERIOD_INIT_UPDATE_ROLE");
+    bytes32 public constant PERIOD_CONFIGURATION_UPDATE_ROLE = keccak256("PERIOD_CONFIGURATION_UPDATE_ROLE");
 
     uint48 public constant SMALLEST_PERIOD_DURATION = 1 days;
 
