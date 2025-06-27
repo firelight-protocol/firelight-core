@@ -5,13 +5,21 @@ import {Checkpoints} from "./lib/Checkpoints.sol";
 
 /**
  * @title FirelightVaultStorage
- * @notice Storage of FirelightVault
+ * @notice Storage layout for FirelightVault.
  */
 abstract contract FirelightVaultStorage {
+    /// @notice Role for updating deposit limits.
     bytes32 public constant DEPOSIT_LIMIT_UPDATE_ROLE = keccak256("DEPOSIT_LIMIT_UPDATE_ROLE");
+/// @notice Role for rescuing funds by minting shares.
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+
+    /// @notice Role for rescuing funds by burning shares.
     bytes32 public constant BURNER_ROLE = keccak256("BURNER_ROLE");
+
+    /// @notice Role for managing the blacklist.
     bytes32 public constant BLACKLIST_ROLE = keccak256("BLACKLIST_ROLE");
+
+    /// @notice Role for pausing and unpausing contract operations.
     bytes32 public constant PAUSE_ROLE = keccak256("PAUSE_ROLE");
 
     /// @notice The maximum total amount of assets that can be deposited into the vault.
@@ -35,8 +43,8 @@ abstract contract FirelightVaultStorage {
     /// @notice Total assets allocated for withdrawals in a given period.
     mapping(uint256 period => uint256 assets) public withdrawAssets;
 
-    /// @notice Total shares allocated for withdrawals in a given period and a givven account.
-    mapping(uint256 period => mapping(address account => uint256 assets)) public withdrawSharesOf;
+    /// @notice Total shares allocated for withdrawals in a given period and a given account.
+    mapping(uint256 period => mapping(address account => uint256 shares)) public withdrawSharesOf;
 
     /// @notice Indicates whether an account has claimed their withdrawal for a given period.
     mapping(uint256 period => mapping(address account => bool value)) public isWithdrawClaimed;
@@ -44,7 +52,7 @@ abstract contract FirelightVaultStorage {
     /// @notice Indicates whether an account is blacklisted.
     mapping(address account => bool) public isBlacklisted;
 
-    /// @notice Checkpoints for assets and shares
+    /// @notice Checkpoints for assets and shares.
     mapping(address account => Checkpoints.Trace256 shares) internal _traceBalanceOf;
     Checkpoints.Trace256 internal _traceTotalSupply;
     Checkpoints.Trace256 internal _traceTotalAssets;
