@@ -12,6 +12,9 @@ abstract contract FirelightVaultStorage {
     bytes32 public constant RESCUER_ROLE = keccak256("RESCUER_ROLE");
     bytes32 public constant BLACKLIST_ROLE = keccak256("BLACKLIST_ROLE");
     bytes32 public constant PAUSE_ROLE = keccak256("PAUSE_ROLE");
+    bytes32 public constant PERIOD_INIT_UPDATE_ROLE = keccak256("PERIOD_INIT_UPDATE_ROLE");
+
+    uint48 public constant SMALLEST_PERIOD_DURATION = 1 days;
 
     /// @notice The maximum total amount of assets that can be deposited into the vault.
     uint256 public depositLimit;
@@ -22,11 +25,14 @@ abstract contract FirelightVaultStorage {
     /// @notice The total amount of assets pending withdrawal across all periods.
     uint256 public pendingWithdrawAssets;
 
-    /// @notice The timestamp when the first period started.
-    uint48 public periodInit;
+    struct PeriodConfiguration {
+        uint48 epoch;
+        uint48 duration;
+        uint startingPeriod;
+    }
 
-    /// @notice The duration of each period in seconds.
-    uint48 public periodDuration;
+    /// @notice Array of period configurations consisting of an starting timestamp (epoch), starting period number (startingPeriod) and period duration (duration).
+    PeriodConfiguration[] public periodConfigurations;
 
     /// @notice Total shares allocated for withdrawals in a given period.
     mapping(uint256 period => uint256 shares) public withdrawShares;

@@ -5,8 +5,8 @@ const DEFAULT_CONFIG = {
   decimals: 6,
   underlying: 'fXRP',
   lst: 'stfXRP',
-  initial_deposit_limit: '50000000000000000000000',    // 50k tokens
-  period_duration: 604800                              // 1 week
+  initial_deposit_limit: '50000000000',    // 50k tokens
+  period_configuration_duration: 604800             // 1 week
 }
 
 const deployVault = async (config = {}) => {
@@ -15,8 +15,8 @@ const deployVault = async (config = {}) => {
   let token_contract, firelight_vault
 
   ({ token_contract, asset_manager } = await deployFAsset([config.underlying, config.underlying, 'Ripple', 'XRP', config.decimals]))
-  let [deployer, rescuer, blacklister, pauser, limit_updater, user1, user2, user3] = await ethers.getSigners()
-  
+  let [deployer, rescuer, blacklister, pauser, limit_updater, period_configuration_updater, user1, user2, user3] = await ethers.getSigners()
+
   const FirelightVaultFactory = await ethers.getContractFactory('FirelightVault')
 
   const InitParams = {
@@ -24,10 +24,11 @@ const deployVault = async (config = {}) => {
     limitUpdater: limit_updater.address,
     blacklister: blacklister.address,
     pauser: pauser.address,
+    periodConfigurationUpdater: period_configuration_updater.address,
     depositLimit: config.initial_deposit_limit,
-    periodDuration: config.period_duration
+    periodConfigurationDuration: config.period_configuration_duration
   }
-  const init_params = abi_coder.encode(['address','address','address','address','uint256','uint48'], Object.values(InitParams))
+  const init_params = abi_coder.encode(['address','address','address','address','address','uint256','uint48'], Object.values(InitParams))
 
   // Deploy vault using proxy
   firelight_vault = await upgrades.deployProxy(FirelightVaultFactory, [await token_contract.getAddress(), config.lst, config.lst, init_params])
@@ -50,6 +51,7 @@ const deployVault = async (config = {}) => {
     blacklister,
     pauser,
     limit_updater,
+    period_configuration_updater,
     users: [ user1, user2, user3 ],
     utils,
     config

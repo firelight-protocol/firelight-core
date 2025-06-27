@@ -35,16 +35,18 @@ contract FirelightVault is
      * @param limitUpdater Address assigned the DEPOSIT_LIMIT_UPDATE_ROLE at initialization.
      * @param blacklister Address assigned the BLACKLIST_ROLE at initialization.
      * @param pauser Address assigned the PAUSE_ROLE at initialization.
+     * @param periodConfigurationUpdater Address assigned the PERIOD_INIT_UPDATE_ROLE at initialization.
      * @param depositLimit Initial total deposit limit.
-     * @param periodDuration Period duration of the vault. Cannot be changed.
+     * @param periodConfigurationDuration Initial period duration of the vault.
      */
     struct InitParams {
         address defaultAdmin;
         address limitUpdater;
         address blacklister;
         address pauser;
+        address periodConfigurationUpdater;
         uint256 depositLimit;
-        uint48 periodDuration;
+        uint48 periodConfigurationDuration;
     }
 
     /**
@@ -52,6 +54,12 @@ contract FirelightVault is
      * @param limit The new maximum amount of assets allowed in the vault.
      */
     event DepositLimitUpdated(uint256 limit);
+
+    /**
+     * @notice Emitted when a new periodConfiguration is added.
+     * @param periodConfiguration The details of the newly added periodConfiguration.
+     */
+    event PeriodConfigurationAdded(PeriodConfiguration periodConfiguration);
 
     /**
      * @notice Emitted when a withdrawal request is created by a user.
@@ -99,12 +107,15 @@ contract FirelightVault is
     error BlacklistedAddress();
     error DepositLimitExceeded();
     error InvalidDepositLimit();
+    error InvalidPeriodConfigurationEpoch();
+    error InvalidPeriodConfigurationDuration();
     error InsufficientShares();
     error InvalidAssetAddress();
     error InvalidAdminAddress();
     error InvalidAddress();
     error InvalidAmount();
     error InvalidPeriod();
+    error CurrentPeriodConfigurationNotLast();
     error InvalidArrayLength();
     error AlreadyClaimedPeriod(uint256 period);
     error NoWithdrawalAmount(uint256 period);
@@ -143,8 +154,8 @@ contract FirelightVault is
             revert InvalidDepositLimit();
         }
 
-        if (initParams.periodDuration == 0) {
-            revert InvalidDepositLimit();
+        if (initParams.periodConfigurationDuration == 0) {
+            revert InvalidPeriodConfigurationDuration();
         }
 
         if (initParams.defaultAdmin == address(0)) {
@@ -152,8 +163,7 @@ contract FirelightVault is
         }
 
         depositLimit = initParams.depositLimit;
-        periodInit = Time.timestamp();
-        periodDuration = initParams.periodDuration;
+        _addPeriodConfiguration(Time.timestamp(), initParams.periodConfigurationDuration);
         contractVersion = 1;
 
         _grantRole(DEFAULT_ADMIN_ROLE, initParams.defaultAdmin);
@@ -169,6 +179,66 @@ contract FirelightVault is
         if (initParams.pauser != address(0)) {
             _grantRole(PAUSE_ROLE, initParams.pauser);
         }
+
+        if (initParams.periodConfigurationUpdater != address(0)) {
+            _grantRole(PERIOD_INIT_UPDATE_ROLE, initParams.periodConfigurationUpdater);
+        }
+    }
+
+    /**
+     * @notice Returns the period configuration corresponding to a given timestamp.
+     * @dev Return value may be unreliable if timestamp given is far away in the future given that new period configurations can be added after nextPeriodEnd().
+     * @param timestamp The timestamp to find the period configuration for.
+     * @return The period configuration corresponding to the given timestamp.
+     */
+    function periodConfigurationAtTimestamp(uint48 timestamp) public view returns (PeriodConfiguration memory) {
+        if (periodConfigurations.length == 0) revert InvalidPeriod();
+
+        PeriodConfiguration memory periodConfiguration;
+        for (uint i = 0; i < periodConfigurations.length; i++) {
+            if (timestamp < periodConfigurations[i].epoch)
+                break;
+            periodConfiguration = periodConfigurations[i];
+        }
+        if (periodConfiguration.epoch == 0) revert InvalidPeriod();
+        return periodConfiguration;
+    }
+
+    /**
+     * @notice Returns the period configuration corresponding to a given period number.
+     * @dev Return value may be unreliable if period number given is far away in the future given that new period configurations can be added after nextPeriodEnd().
+     * @param periodNumber The period number to find the period configuration for.
+     * @return The period configuration corresponding to the given period number.
+     */
+    function periodConfigurationAtNumber(uint periodNumber) external view returns (PeriodConfiguration memory) {
+        if (periodConfigurations.length == 0) revert InvalidPeriod();
+
+        PeriodConfiguration memory periodConfiguration;
+        for (uint i = 0; i < periodConfigurations.length; i++) {
+            if (periodNumber < periodConfigurations[i].startingPeriod)
+                break;
+            periodConfiguration = periodConfigurations[i];
+        }
+        if (periodConfiguration.epoch == 0) revert InvalidPeriod();
+        return periodConfiguration;
+    }
+
+    /**
+     * @notice Returns the period number for the timestamp given.
+     * @dev Return value may be unreliable if period number given is far away in the future given that new period configurations can be added after nextPeriodEnd().
+     * @return The period number corresponding to the given timestamp.
+     */
+    function periodAtTimestamp(uint48 timestamp) public view returns (uint256) {
+        PeriodConfiguration memory periodConfiguration = periodConfigurationAtTimestamp(timestamp);
+        return periodConfiguration.startingPeriod + _sinceEpoch(periodConfiguration.epoch) / periodConfiguration.duration;
+    }
+
+    /**
+     * @notice Returns the period configuration for the current period.
+     * @return The period configuration corresponding to the current period.
+     */
+    function currentPeriodConfiguration() public view returns (PeriodConfiguration memory) {
+        return periodConfigurationAtTimestamp(Time.timestamp());
     }
 
     /**
@@ -176,15 +246,34 @@ contract FirelightVault is
      * @return The current period number since contract deployment.
      */
     function currentPeriod() public view returns (uint256) {
-        return (Time.timestamp() - periodInit) / periodDuration;
+        return periodAtTimestamp(Time.timestamp());
     }
 
     /**
      * @notice Returns the start timestamp of the current period.
-     * @return Timestamp of the current start period.
+     * @return Timestamp of the current period start.
      */
-    function currentPeriodStart() external view returns (uint256) {
-        return (periodInit + currentPeriod() * periodDuration);
+    function currentPeriodStart() external view returns (uint48) {
+        PeriodConfiguration memory currentPC = currentPeriodConfiguration();
+        return currentPC.epoch + (_sinceEpoch(currentPC.epoch) / currentPC.duration) * currentPC.duration;
+    }
+
+    /**
+     * @notice Returns the end timestamp of the current period.
+     * @return Timestamp of the current period end.
+     */
+    function currentPeriodEnd() public view returns (uint48) {
+        PeriodConfiguration memory currentPC = currentPeriodConfiguration();
+        return currentPC.epoch + (_sinceEpoch(currentPC.epoch) / currentPC.duration + 1) * currentPC.duration;
+    }
+
+    /**
+     * @notice Returns the end timestamp of the period following the current period.
+     * @return Timestamp of the next period end.
+     */
+    function nextPeriodEnd() public view returns (uint48) {
+        uint48 currentEnd = currentPeriodEnd();
+        return currentEnd + periodConfigurationAtTimestamp(currentEnd).duration;
     }
 
     /**
@@ -241,6 +330,14 @@ contract FirelightVault is
     }
 
     /**
+     * @notice Returns the length of the periodConfigurations array.
+     * @return Length of the periodConfigurations array.
+     */
+    function periodConfigurationsLength() public view returns (uint256) {
+        return periodConfigurations.length;
+    }
+
+    /**
      * @notice Pauses the contract. Requires PAUSE_ROLE.
      */
     function pause() external onlyRole(PAUSE_ROLE) {
@@ -264,6 +361,15 @@ contract FirelightVault is
         }
         depositLimit = newLimit;
         emit DepositLimitUpdated(newLimit);
+    }
+
+    /**
+     * @notice Adds a period configuration. Requires PERIOD_INIT_UPDATE_ROLE.
+     * @param epoch The epoch timestamp.
+     * @param duration The period duration.
+     */
+    function addPeriodConfiguration(uint48 epoch, uint48 duration) external onlyRole(PERIOD_INIT_UPDATE_ROLE) {
+        _addPeriodConfiguration(epoch, duration);
     }
 
     /**
@@ -582,5 +688,34 @@ contract FirelightVault is
         Math.Rounding rounding
     ) private view returns (uint256) {
         return shares.mulDiv(totAssets + 1, totSupply + 10 ** _decimalsOffset(), rounding);
+    }
+
+    function _sinceEpoch(uint48 epoch) private view returns (uint48) {
+        return Time.timestamp() - epoch;
+    }
+
+    function _addPeriodConfiguration(uint48 newEpoch, uint48 newDuration) private {
+        if (newDuration < SMALLEST_PERIOD_DURATION || newDuration % SMALLEST_PERIOD_DURATION != 0) revert InvalidPeriodConfigurationDuration();
+
+        uint startingPeriod;
+        if (periodConfigurations.length > 0) {
+            PeriodConfiguration memory currentPC = currentPeriodConfiguration();
+            if (currentPC.epoch != periodConfigurations[periodConfigurations.length - 1].epoch) revert CurrentPeriodConfigurationNotLast();
+            if (newEpoch < nextPeriodEnd() || (newEpoch - currentPC.epoch) % currentPC.duration != 0) revert InvalidPeriodConfigurationEpoch();
+
+            startingPeriod = currentPC.startingPeriod + (newEpoch - currentPC.epoch) / currentPC.duration;
+        } else {
+            if (newEpoch < Time.timestamp()) revert InvalidPeriodConfigurationEpoch();
+
+            startingPeriod = 0;
+        }
+
+        PeriodConfiguration memory newPeriod = PeriodConfiguration({
+            epoch: newEpoch,
+            duration: newDuration,
+            startingPeriod: startingPeriod
+        });
+        periodConfigurations.push(newPeriod);
+        emit PeriodConfigurationAdded(newPeriod);
     }
 }

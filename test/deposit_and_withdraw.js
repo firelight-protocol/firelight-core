@@ -61,7 +61,7 @@ describe('Deposit and Withdraw test', function() {
   })
 
   it('claims withdrawal after the end of next period and receives tokens', async () => {
-    await time.increase(config.period_duration * 2)
+    await time.increase(config.period_configuration_duration * 2)
 
     const complete_withdraw_tx = firelight_vault.connect(users[0]).claimWithdraw(withdraw_period)
     await expect(complete_withdraw_tx).to.emit(firelight_vault, 'CompleteWithdraw').withArgs(
@@ -76,13 +76,13 @@ describe('Deposit and Withdraw test', function() {
   })
 
   it('reverts when user tries to claim the withdrawal again', async () => {
-    await time.increase(config.period_duration)
+    await time.increase(config.period_configuration_duration)
     const complete_withdraw = firelight_vault.connect(users[0]).claimWithdraw(withdraw_period)
     await expect(complete_withdraw).to.be.revertedWithCustomError(firelight_vault, 'AlreadyClaimedPeriod')
   })
 
   it('reverts when user tries to claim a withdraw that does not exist', async () => {
-    await time.increase(config.period_duration)
+    await time.increase(config.period_configuration_duration)
     const complete_withdraw = firelight_vault.connect(users[0]).claimWithdraw(withdraw_period + 1n)
     await expect(complete_withdraw).to.be.revertedWithCustomError(firelight_vault, 'NoWithdrawalAmount')
   })
