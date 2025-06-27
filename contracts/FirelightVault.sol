@@ -56,6 +56,12 @@ contract FirelightVault is
     event DepositLimitUpdated(uint256 limit);
 
     /**
+     * @notice Emitted when a new periodInit is added.
+     * @param periodInit The details of the newly added periodInit.
+     */
+    event PeriodInitAdded(PeriodInit periodInit);
+
+    /**
      * @notice Emitted when a withdrawal request is created by a user.
      * @param sender The caller who initiated the withdrawal request.
      * @param receiver The address that will receive the assets in the next period.
@@ -139,7 +145,7 @@ contract FirelightVault is
         }
 
         depositLimit = initParams.depositLimit;
-        _appendPeriodInit(Time.timestamp(), initParams.periodInitDuration);
+        _addPeriodInit(Time.timestamp(), initParams.periodInitDuration);
         contractVersion = 1;
 
         _grantRole(DEFAULT_ADMIN_ROLE, initParams.defaultAdmin);
@@ -268,12 +274,12 @@ contract FirelightVault is
     }
 
     /**
-     * @notice Appends a period init. Requires PERIOD_INIT_UPDATE_ROLE.
+     * @notice Adds a period init. Requires PERIOD_INIT_UPDATE_ROLE.
      * @param epoch The epoch timestamp.
      * @param duration The period duration.
      */
-    function appendPeriodInit(uint48 epoch, uint48 duration) external onlyRole(PERIOD_INIT_UPDATE_ROLE) {
-        _appendPeriodInit(epoch, duration);
+    function addPeriodInit(uint48 epoch, uint48 duration) external onlyRole(PERIOD_INIT_UPDATE_ROLE) {
+        _addPeriodInit(epoch, duration);
     }
 
     /**
@@ -578,7 +584,7 @@ contract FirelightVault is
         return currentEnd + _periodInitAt(currentEnd).duration;
     }
 
-    function _appendPeriodInit(uint48 newEpoch, uint48 newDuration) private {
+    function _addPeriodInit(uint48 newEpoch, uint48 newDuration) private {
         if (newDuration < SMALLEST_PERIOD_DURATION || newDuration % SMALLEST_PERIOD_DURATION != 0) revert InvalidPeriodInitDuration();
 
         uint startingPeriod;
@@ -600,5 +606,6 @@ contract FirelightVault is
             startingPeriod: startingPeriod
         });
         periodInits.push(newPeriod);
+        emit PeriodInitAdded(newPeriod);
     }
 }
