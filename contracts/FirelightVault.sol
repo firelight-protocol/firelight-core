@@ -530,8 +530,9 @@ contract FirelightVault is
     }
 
     /**
-     * @notice Withdraws assets from the vault and receive underlying assets, with blacklist and pause checks.
-     * Create a withdrawal request which will be available in the next period. The calculated shares are burned.
+     * @notice Initiates a withdrawal request from the vault, with blacklist and pause checks.
+     * The request becomes claimable starting from the period after the next full period.
+     * The calculated shares are burned.
      * @param assets The amount of assets to withdraw.
      * @param receiver The address to receive the assets in the next period.
      * @param owner The address whose shares are being withdrawn.
