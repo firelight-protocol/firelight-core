@@ -39,9 +39,10 @@ abstract contract FirelightVaultStorage {
     struct PeriodConfiguration {
         uint48 epoch;
         uint48 duration;
-        uint startingPeriod;
+        uint256 startingPeriod;
     }
 
+    // solhint-disable-next-line max-line-length
     /// @notice Array of period configurations consisting of an starting timestamp (epoch), starting period number (startingPeriod) and period duration (duration).
     PeriodConfiguration[] public periodConfigurations;
 

@@ -9,7 +9,7 @@
     "logs:on:unix": "SHOW_LOGS=true node scripts/command.js",
     "logs:off": "node scripts/command.js",
     "coverage": "npx hardhat coverage",
-    "solhint": "npx solhint 'contracts/**/*.sol'",
+    "solhint": "npx solhint contracts/**/*.sol",
     "postinstall": "npx patch-package", 
     "test": "npx hardhat test "
   },

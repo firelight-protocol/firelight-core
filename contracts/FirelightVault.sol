@@ -197,15 +197,17 @@ contract FirelightVault is
 
     /**
      * @notice Returns the period configuration corresponding to a given timestamp.
-     * @dev Return value may be unreliable if timestamp given is far away in the future given that new period configurations can be added after nextPeriodEnd().
+     * @dev Return value may be unreliable if timestamp given is far away in the future
+     * @dev given that new period configurations can be added after nextPeriodEnd().
      * @param timestamp The timestamp to find the period configuration for.
      * @return The period configuration corresponding to the given timestamp.
      */
     function periodConfigurationAtTimestamp(uint48 timestamp) public view returns (PeriodConfiguration memory) {
-        if (periodConfigurations.length == 0) revert InvalidPeriod();
+        uint256 length = periodConfigurations.length;
+        if (length == 0) revert InvalidPeriod();
 
         PeriodConfiguration memory periodConfiguration;
-        for (uint i = 0; i < periodConfigurations.length; i++) {
+        for (uint256 i = 0; i < length; i++) {
             if (timestamp < periodConfigurations[i].epoch)
                 break;
             periodConfiguration = periodConfigurations[i];
@@ -216,15 +218,17 @@ contract FirelightVault is
 
     /**
      * @notice Returns the period configuration corresponding to a given period number.
-     * @dev Return value may be unreliable if period number given is far away in the future given that new period configurations can be added after nextPeriodEnd().
+     * @dev Return value may be unreliable if period number given is far away in the future
+     * @dev given that new period configurations can be added after nextPeriodEnd().
      * @param periodNumber The period number to find the period configuration for.
      * @return The period configuration corresponding to the given period number.
      */
-    function periodConfigurationAtNumber(uint periodNumber) external view returns (PeriodConfiguration memory) {
-        if (periodConfigurations.length == 0) revert InvalidPeriod();
+    function periodConfigurationAtNumber(uint256 periodNumber) external view returns (PeriodConfiguration memory) {
+        uint256 length = periodConfigurations.length;
+        if (length == 0) revert InvalidPeriod();
 
         PeriodConfiguration memory periodConfiguration;
-        for (uint i = 0; i < periodConfigurations.length; i++) {
+        for (uint256 i = 0; i < length; i++) {
             if (periodNumber < periodConfigurations[i].startingPeriod)
                 break;
             periodConfiguration = periodConfigurations[i];
@@ -235,11 +239,13 @@ contract FirelightVault is
 
     /**
      * @notice Returns the period number for the timestamp given.
-     * @dev Return value may be unreliable if period number given is far away in the future given that new period configurations can be added after nextPeriodEnd().
+     * @dev Return value may be unreliable if period number given is far away in the future
+     * @dev given that new period configurations can be added after nextPeriodEnd().
      * @return The period number corresponding to the given timestamp.
      */
     function periodAtTimestamp(uint48 timestamp) public view returns (uint256) {
         PeriodConfiguration memory periodConfiguration = periodConfigurationAtTimestamp(timestamp);
+        // solhint-disable-next-line max-line-length
         return periodConfiguration.startingPeriod + _sinceEpoch(periodConfiguration.epoch) / periodConfiguration.duration;
     }
 
@@ -748,13 +754,16 @@ contract FirelightVault is
     }
 
     function _addPeriodConfiguration(uint48 newEpoch, uint48 newDuration) private {
-        if (newDuration < SMALLEST_PERIOD_DURATION || newDuration % SMALLEST_PERIOD_DURATION != 0) revert InvalidPeriodConfigurationDuration();
+        if (newDuration < SMALLEST_PERIOD_DURATION || newDuration % SMALLEST_PERIOD_DURATION != 0)
+            revert InvalidPeriodConfigurationDuration();
 
-        uint startingPeriod;
+        uint256 startingPeriod;
         if (periodConfigurations.length > 0) {
             PeriodConfiguration memory currentPC = currentPeriodConfiguration();
-            if (currentPC.epoch != periodConfigurations[periodConfigurations.length - 1].epoch) revert CurrentPeriodConfigurationNotLast();
-            if (newEpoch < nextPeriodEnd() || (newEpoch - currentPC.epoch) % currentPC.duration != 0) revert InvalidPeriodConfigurationEpoch();
+            if (currentPC.epoch != periodConfigurations[periodConfigurations.length - 1].epoch)
+                revert CurrentPeriodConfigurationNotLast();
+            if (newEpoch < nextPeriodEnd() || (newEpoch - currentPC.epoch) % currentPC.duration != 0)
+                revert InvalidPeriodConfigurationEpoch();
 
             startingPeriod = currentPC.startingPeriod + (newEpoch - currentPC.epoch) / currentPC.duration;
         } else {
