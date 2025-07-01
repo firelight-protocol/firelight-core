@@ -97,6 +97,7 @@ contract FirelightVault is
     event WithdrawRescuedFromBlacklisted(address from, address to, uint256[] periods, uint256[] rescuedShares);
 
     error BlacklistedAddress();
+    error NotBlacklistedAddress();
     error DepositLimitExceeded();
     error InvalidDepositLimit();
     error InsufficientShares();
@@ -115,6 +116,14 @@ contract FirelightVault is
         }
         _;
     }
+
+    modifier onlyBlacklisted(address account) {
+        if (!isBlacklisted[account]) {
+            revert NotBlacklistedAddress();
+        }
+        _;
+    }
+
     /**
      * @notice Initializes the FirelightVault contract with given parameters
      * @param _asset The underlying collateral ERC20 token.
@@ -322,7 +331,7 @@ contract FirelightVault is
 
         return true;
     }
-
+        
     /**
      * @notice Deposits assets into the vault and receive shares, with blacklist and pause checks.
      * @param assets Amount of assets to deposit.
@@ -341,16 +350,40 @@ contract FirelightVault is
             Math.Rounding.Floor
         );
 
-        _totalSupply += shares;
-        _totalAssets += assets;
-
-        if (_totalAssets > depositLimit) revert DepositLimitExceeded();
-
-        _deposit(_msgSender(), receiver, assets, shares);
-
-        _logTrace(receiver, balanceOf(receiver), _totalSupply, _totalAssets, true);
+        _depositFunds(_msgSender(), receiver, assets, shares, _totalSupply, _totalAssets);
 
         return shares;
+    }
+
+    /**
+     * @notice Mints shares by depositing the required amount of assets into the vault, with blacklist and pause checks.
+     * @param shares Amount of shares to mint.
+     * @param receiver Address receiving the shares.
+     * @return Amount of assets deposited.
+     */
+    function mint(
+        uint256 shares, 
+        address receiver
+    )
+        public
+        override
+        whenNotPaused
+        notBlacklisted(_msgSender())
+        notBlacklisted(receiver)
+        nonReentrant
+        returns (uint256)
+    {
+        if (shares == 0) revert InvalidAmount();
+
+        (uint256 assets, uint256 _totalSupply, uint256 _totalAssets) = _previewTotals(
+            shares,
+            false,
+            Math.Rounding.Ceil
+        );
+
+        _depositFunds(_msgSender(), receiver, assets, shares, _totalSupply, _totalAssets);
+
+        return assets;
     }
 
     /**
@@ -500,6 +533,24 @@ contract FirelightVault is
         }
 
         emit WithdrawRescuedFromBlacklisted(from, to, periods, rescuedShares);
+    }
+
+    function _depositFunds(
+        address caller,
+        address receiver,
+        uint256 assets,
+        uint256 shares,
+        uint256 _totalSupply,
+        uint256 _totalAssets
+    ) private {    
+        _totalSupply += shares;
+        _totalAssets += assets;
+
+        if (_totalAssets > depositLimit) revert DepositLimitExceeded();
+
+        _deposit(caller, receiver, assets, shares);
+
+        _logTrace(receiver, balanceOf(receiver), _totalSupply, _totalAssets, true);
     }
 
     function _requestWithdraw(

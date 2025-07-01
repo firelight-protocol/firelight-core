@@ -46,6 +46,16 @@ describe('Blacklist test', function() {
     await expect(deposit_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
   })
 
+  it('reverts if a blacklisted user attempts to mint to any user', async () => {
+    const deposit_attempt = firelight_vault.connect(users[0]).mint(DEPOSIT_AMOUNT, users[1].address)
+    await expect(deposit_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
+  })
+
+  it('reverts if a second user tries to mint to a blacklisted user', async () => {
+    const deposit_attempt = firelight_vault.connect(users[1]).mint(DEPOSIT_AMOUNT, users[0].address)
+    await expect(deposit_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
+  })
+
   it('reverts if a user attempts to redem from a blacklisted user', async () => {
     const redeem_attempt = firelight_vault.connect(users[1]).redeem(DEPOSIT_AMOUNT, users[1].address, users[0].address)
     await expect(redeem_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlacklistedAddress')
