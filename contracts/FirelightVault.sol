@@ -460,7 +460,7 @@ contract FirelightVault is
 
         return true;
     }
-
+        
     /**
      * @notice Deposits assets into the vault and receive shares, with blocklist and pause checks.
      * @param assets Amount of assets to deposit.
@@ -487,16 +487,40 @@ contract FirelightVault is
             Math.Rounding.Floor
         );
 
-        _totalSupply += shares;
-        _totalAssets += assets;
-
-        if (_totalAssets > depositLimit) revert DepositLimitExceeded();
-
-        _deposit(_msgSender(), receiver, assets, shares);
-
-        _logTrace(receiver, balanceOf(receiver), _totalSupply, _totalAssets, true);
+        _depositFunds(_msgSender(), receiver, assets, shares, _totalSupply, _totalAssets);
 
         return shares;
+    }
+
+    /**
+     * @notice Mints shares by depositing the required amount of assets into the vault, with blocklist and pause checks.
+     * @param shares Amount of shares to mint.
+     * @param receiver Address receiving the shares.
+     * @return Amount of assets deposited.
+     */
+    function mint(
+        uint256 shares, 
+        address receiver
+    )
+        public
+        override
+        whenNotPaused
+        notBlocklisted(_msgSender())
+        notBlocklisted(receiver)
+        nonReentrant
+        returns (uint256)
+    {
+        if (shares == 0) revert InvalidAmount();
+
+        (uint256 assets, uint256 _totalSupply, uint256 _totalAssets) = _previewTotals(
+            shares,
+            false,
+            Math.Rounding.Ceil
+        );
+
+        _depositFunds(_msgSender(), receiver, assets, shares, _totalSupply, _totalAssets);
+
+        return assets;
     }
 
     /**
@@ -665,6 +689,24 @@ contract FirelightVault is
         }
 
         emit WithdrawRescuedFromBlocklisted(from, to, periods, rescuedShares);
+    }
+
+    function _depositFunds(
+        address caller,
+        address receiver,
+        uint256 assets,
+        uint256 shares,
+        uint256 _totalSupply,
+        uint256 _totalAssets
+    ) private {    
+        _totalSupply += shares;
+        _totalAssets += assets;
+
+        if (_totalAssets > depositLimit) revert DepositLimitExceeded();
+
+        _deposit(caller, receiver, assets, shares);
+
+        _logTrace(receiver, balanceOf(receiver), _totalSupply, _totalAssets, true);
     }
 
     function _requestWithdraw(

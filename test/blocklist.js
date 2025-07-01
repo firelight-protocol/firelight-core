@@ -76,6 +76,16 @@ describe('Blocklist test', function() {
     await expect(deposit_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlocklistedAddress')
   })
 
+  it('reverts if a blocklisted user attempts to mint to any user', async () => {
+    const deposit_attempt = firelight_vault.connect(users[0]).mint(DEPOSIT_AMOUNT, users[1].address)
+    await expect(deposit_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlocklistedAddress')
+  })
+
+  it('reverts if a second user tries to mint to a blocklisted user', async () => {
+    const deposit_attempt = firelight_vault.connect(users[1]).mint(DEPOSIT_AMOUNT, users[0].address)
+    await expect(deposit_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlocklistedAddress')
+  })
+
   it('reverts if a user attempts to redem from a blocklisted user', async () => {
     const redeem_attempt = firelight_vault.connect(users[1]).redeem(DEPOSIT_AMOUNT, users[1].address, users[0].address)
     await expect(redeem_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlocklistedAddress')

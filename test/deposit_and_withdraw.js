@@ -6,7 +6,7 @@ const { ethers } = require('hardhat')
 describe('Deposit and Withdraw test', function() {
   const DECIMALS = 6,
         INITIAL_DEPOSIT_LIMIT =  ethers.parseUnits('5000', DECIMALS), // 5k tokens
-        TARGET_DEPOSIT_LIMIT = ethers.parseUnits('10000', DECIMALS),  // 10k tokens
+        TARGET_DEPOSIT_LIMIT = ethers.parseUnits('20000', DECIMALS),  // 20k tokens
         DEPOSIT_AMOUNT = ethers.parseUnits('10000', DECIMALS)         // 10k tokens
 
   before(async () => {
@@ -19,7 +19,12 @@ describe('Deposit and Withdraw test', function() {
   })
 
   it('reverts when trying to deposit more than the deposit limit allows', async () => {
-    const deposit_attempt = firelight_vault.connect(users[0]).deposit(DEPOSIT_AMOUNT, users[0].address)
+    const deposit_attempt = firelight_vault.connect(users[1]).deposit(DEPOSIT_AMOUNT, users[0].address)
+    await expect(deposit_attempt).to.be.revertedWithCustomError(firelight_vault, 'DepositLimitExceeded')
+  })
+
+  it('reverts when trying to mint more than the deposit limit allows', async () => {
+    const deposit_attempt = firelight_vault.connect(users[0]).mint(DEPOSIT_AMOUNT, users[0].address)
     await expect(deposit_attempt).to.be.revertedWithCustomError(firelight_vault, 'DepositLimitExceeded')
   })
 
@@ -32,9 +37,9 @@ describe('Deposit and Withdraw test', function() {
 
   it('deposits tokens and receives the expected amount of shares', async () => {
     const shares_preview = await firelight_vault.previewDeposit(DEPOSIT_AMOUNT),
-          deposit = firelight_vault.connect(users[0]).deposit(DEPOSIT_AMOUNT, users[0])
+          depositTrx = firelight_vault.connect(users[0]).deposit(DEPOSIT_AMOUNT, users[0])
     
-    await expect(deposit).to.emit(firelight_vault, 'Deposit').withArgs(
+    await expect(depositTrx).to.emit(firelight_vault, 'Deposit').withArgs(
       users[0].address, users[0].address, DEPOSIT_AMOUNT, shares_preview
     )
 
@@ -42,8 +47,29 @@ describe('Deposit and Withdraw test', function() {
     expect(shares.toString()).to.equal(DEPOSIT_AMOUNT)
   })
 
+  it('mints shares and deducts the expected amount of tokens', async () => {
+    const prev_token_bal = await token_contract.balanceOf(users[1]),
+          assets_preview = await firelight_vault.previewMint(DEPOSIT_AMOUNT),
+          mintedTrx = firelight_vault.connect(users[1]).mint(DEPOSIT_AMOUNT, users[1])
+   
+    await expect(mintedTrx).to.emit(firelight_vault, 'Deposit').withArgs(
+      users[1].address, users[1].address, assets_preview, DEPOSIT_AMOUNT
+    )
+
+    const shares = await firelight_vault.balanceOf(users[1].address)
+    expect(shares.toString()).to.equal(DEPOSIT_AMOUNT)
+
+    const assets = await token_contract.balanceOf(users[1].address)
+    expect(assets).to.equal(prev_token_bal - DEPOSIT_AMOUNT)
+  })
+
   it('reverts when user tries to request withdraw with more than what it owns', async () => {
     const withdraw_request = firelight_vault.connect(users[0]).withdraw(DEPOSIT_AMOUNT + 1n, users[0].address, users[0].address)
+    await expect(withdraw_request).to.be.revertedWithCustomError(firelight_vault, 'InsufficientShares')
+  })
+
+  it('reverts when user tries to request redeem with more than what it owns', async () => {
+    const withdraw_request = firelight_vault.connect(users[1]).redeem(DEPOSIT_AMOUNT + 1n, users[1].address, users[1].address)
     await expect(withdraw_request).to.be.revertedWithCustomError(firelight_vault, 'InsufficientShares')
   })
 
