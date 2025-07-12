@@ -678,7 +678,8 @@ contract FirelightVault is
         for (uint256 i = 0; i < len; i++) {
             uint256 _withdrawOf = withdrawSharesOf[periods[i]][from];
 
-            if (isWithdrawClaimed[periods[i]][from]) revert AlreadyClaimedPeriod(periods[i]);            
+            if (isWithdrawClaimed[periods[i]][from]) revert AlreadyClaimedPeriod(periods[i]);
+            if (isWithdrawClaimed[periods[i]][to]) revert AlreadyClaimedPeriod(periods[i]);
             if (_withdrawOf == 0) revert NoWithdrawalAmount(periods[i]);
   
             withdrawSharesOf[periods[i]][to] += _withdrawOf;

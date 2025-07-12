@@ -130,6 +130,11 @@ describe('Rescue test', function() {
     await expect(rescueAttempt).to.revertedWithCustomError(firelight_vault,'NotBlocklistedAddress')
   })
 
+  it('reverts if rescuer tries to rescue pending withdrawals to a user who has already claimed that period', async () => {
+    const rescueAttempt = firelight_vault.connect(rescuer).rescueWithdrawFromBlocklisted(users[0].address, users[2].address, [1])
+    await expect(rescueAttempt).to.revertedWithCustomError(firelight_vault,'AlreadyClaimedPeriod')
+  })
+
   it('blocklister successfully adds a user with pending a withdraw to the blocklist', async () => {
     await firelight_vault.connect(blocklister).addToBlocklist(users[2].address)
     expect(await firelight_vault.isBlocklisted(users[2].address)).to.eq(true)
