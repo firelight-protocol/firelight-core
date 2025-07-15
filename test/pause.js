@@ -32,6 +32,18 @@ describe('Pause test', function() {
     expect(await firelight_vault.paused()).to.equal(true)
   })
 
+  it('returns correct values for maxDeposit, maxMint, maxWithdraw and maxRedeem when the contract is paused', async () => {
+    const max_deposit = await firelight_vault.maxDeposit(users[0].address),
+          max_mint = await firelight_vault.maxMint(users[0].address),
+          max_withdraw = await firelight_vault.maxWithdraw(users[0].address),
+          max_redeem = await firelight_vault.maxRedeem(users[0].address)
+
+    expect(max_deposit).to.be.equal(0n)
+    expect(max_mint).to.be.equal(0n)
+    expect(max_withdraw).to.be.equal(0n)
+    expect(max_redeem).to.be.equal(0n)
+  })
+
   it('reverts when trying to deposit if the contract is paused', async () => {
     const deposit_attempt = firelight_vault.connect(users[0]).deposit(DEPOSIT_AMOUNT / 2n, users[0].address)
     await expect(deposit_attempt).to.be.revertedWithCustomError(firelight_vault, 'EnforcedPause')
