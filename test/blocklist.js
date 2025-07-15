@@ -35,6 +35,18 @@ describe('Blocklist test', function() {
     expect(status).to.equal(true)
   })
 
+  it('returns correct values for maxDeposit, maxMint, maxWithdraw and maxRedeem if the user is blocklisted', async () => {
+    const max_deposit = await firelight_vault.maxDeposit(users[0].address),
+          max_mint = await firelight_vault.maxMint(users[0].address),
+          max_withdraw = await firelight_vault.maxWithdraw(users[0].address),
+          max_redeem = await firelight_vault.maxRedeem(users[0].address)
+
+    expect(max_deposit).to.be.equal(0n)
+    expect(max_mint).to.be.equal(0n)
+    expect(max_withdraw).to.be.equal(0n)
+    expect(max_redeem).to.be.equal(0n)
+  })
+
   it('reverts if blocklister tries to blocklist a user that is already blocklisted', async () => {
     const blocklist = firelight_vault.connect(blocklister).addToBlocklist(users[0].address)
     await expect(blocklist).to.be.revertedWithCustomError(firelight_vault, 'BlocklistedAddress')
@@ -86,12 +98,12 @@ describe('Blocklist test', function() {
     await expect(deposit_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlocklistedAddress')
   })
 
-  it('reverts if a user attempts to redem from a blocklisted user', async () => {
+  it('reverts if a user attempts to redeem from a blocklisted user', async () => {
     const redeem_attempt = firelight_vault.connect(users[1]).redeem(DEPOSIT_AMOUNT, users[1].address, users[0].address)
     await expect(redeem_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlocklistedAddress')
   })
 
-  it('reverts if a user attempts to redem to a blocklisted user', async () => {
+  it('reverts if a user attempts to redeem to a blocklisted user', async () => {
     const redeem_attempt = firelight_vault.connect(users[1]).redeem(DEPOSIT_AMOUNT, users[0].address, users[2].address)
     await expect(redeem_attempt).to.be.revertedWithCustomError(firelight_vault, 'BlocklistedAddress')
   })

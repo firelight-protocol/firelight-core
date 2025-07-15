@@ -16,7 +16,18 @@ import {Checkpoints} from "./lib/Checkpoints.sol";
 
 /**
  * @title FirelightVault
- * @notice Upgradeable ERC4626-compatible vault
+ * @notice Upgradeable ERC4626-compatible vault with delayed withdrawals.
+ *
+ * @dev FirelightVault is an ERC4626 vault that intentionally deviates from the standard.
+ * It overrides `withdraw` and `redeem` to implement delayed withdrawals.
+ * Instead of transferring assets immediately, these functions create a withdrawal request,
+ * which must be completed later via `claimWithdraw` after a set delay.
+ *
+ * The standard `Withdraw` event is not emitted. Instead, `WithdrawRequest` and `CompleteWithdraw`
+ * are used to track the withdrawal process.
+ *
+ * Off-chain and on-chain tools must account for this custom flow and event structure.
+ *
  * @custom:security-contact securityreport@firelight.finance
  */
 contract FirelightVault is
@@ -290,6 +301,64 @@ contract FirelightVault is
     function nextPeriodEnd() public view returns (uint48) {
         uint48 currentEnd = currentPeriodEnd();
         return currentEnd + periodConfigurationAtTimestamp(currentEnd).duration;
+    }
+
+    /**
+     * @notice Returns the maximum amount of the underlying asset that can be deposited into the Vault for the receiver,
+     * through a deposit call.
+     * @param receiver The address of the deposit receiver.
+     * @return amount Maximum amount of assets that can be deposited.
+     */
+    function maxDeposit(address receiver) public view override returns (uint256 amount) {
+        uint256 assets = totalAssets();
+        if (isBlocklisted[receiver] || paused() || assets > depositLimit) {
+            return 0;
+        } else {
+            return depositLimit - assets;
+        }
+    }
+
+    /**
+     * @notice Returns the maximum amount of the Vault shares that can be minted for the receiver, through a mint call.
+     * @param receiver The address of the mint receiver.
+     * @return amount Maximum amount of shares that can be minted.
+     */
+    function maxMint(address receiver) public view override returns (uint256 amount) {
+        uint256 shares = totalSupply();
+        uint256 sharesLimit = convertToShares(depositLimit);
+        if (isBlocklisted[receiver] || paused() || shares > sharesLimit) {
+            return 0;
+        } else {
+            return sharesLimit - shares;
+        }
+    }
+
+    /**
+     * @notice Returns the maximum amount of the underlying asset that can be withdrawn from the owner balance in the
+     * Vault, through a withdraw call.
+     * @param owner The owner of the assets.
+     * @return amount Maximum amount of assets that can be withdrawn.
+     */
+    function maxWithdraw(address owner) public view override returns (uint256 amount) {
+        if (isBlocklisted[owner] || paused()) {
+            return 0;
+        } else {
+            return _convertToAssets(balanceOf(owner), Math.Rounding.Floor);
+        }
+    }
+    
+    /**
+     * @notice Returns the maximum amount of Vault shares that can be redeemed from the owner balance in the Vault,
+     * through a redeem call.
+     * @param owner The owner of the shares.
+     * @param amount Maximum amount of shares that can be redeemed.
+     */
+    function maxRedeem(address owner) public view override returns (uint256 amount) {
+        if (isBlocklisted[owner] || paused()) {
+            return 0;
+        } else {
+            return balanceOf(owner);
+        }
     }
 
     /**
