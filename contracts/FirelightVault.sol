@@ -399,7 +399,7 @@ contract FirelightVault is
     }
 
     /**
-     * @notice Gets the amount an account can withdraw for a given period.
+     * @notice Returns the amount that was made withdrawable for the given period and account, whether claimed or not.
      * @param period Period number to check.
      * @param account Account address.
      * @return Amount of assets claimable for that period.
