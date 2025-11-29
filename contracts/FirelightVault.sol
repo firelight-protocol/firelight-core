@@ -148,6 +148,14 @@ contract FirelightVault is
     }
 
     /**
+     * @notice Prevents unauthorized direct deployment via the constructor.
+     */
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    /**
      * @notice Initializes the FirelightVault contract with given parameters
      * @param _asset The underlying collateral ERC20 token.
      * @param _name The name of the vault token.
