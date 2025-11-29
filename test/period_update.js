@@ -12,7 +12,7 @@ const current_period_duration = async () => {
 }
 
 describe('Period update test', function() {
-  let withdraw_period_one, withdraw_period_two
+  let withdraw_period_one, withdraw_period_two, first_period_ts, first_period
   const DECIMALS = 6,
         INITIAL_DEPOSIT_LIMIT =  ethers.parseUnits('20000', DECIMALS), // 20k tokens
         DEPOSIT_AMOUNT = ethers.parseUnits('10000', DECIMALS),         // 10k tokens
@@ -41,7 +41,15 @@ describe('Period update test', function() {
     expect(await firelight_vault.currentPeriod()).to.equal(1)
   })
 
+  it('current period should be the same as periodAtTimestamp for current block timestamp. Store current block timestamp and period number', async () => {
+    const current_block = await ethers.provider.getBlock()
+    first_period_ts =  current_block.timestamp
+    first_period = await firelight_vault.currentPeriod()
+    expect( await firelight_vault.periodAtTimestamp(first_period_ts)).to.eq(first_period)
+  })
+
   it('reverts when providing a duration lesser than or not divisible by SMALLEST_PERIOD_DURATION', async () => {
+
     const new_epoch = 0,
           duration = 3600
     const small_duration_update_attempt = firelight_vault.connect(period_configuration_updater).addPeriodConfiguration(new_epoch, duration)
@@ -141,5 +149,11 @@ describe('Period update test', function() {
 
     expect(shares).to.equal(0)
     expect(tokens).to.equal(DEPOSIT_AMOUNT)
+
   })
+
+	it("period number at stored timestamp, should remain the same", async () => {
+		expect(await firelight_vault.periodAtTimestamp(first_period_ts)).to.eq(first_period)
+	});
+
 })

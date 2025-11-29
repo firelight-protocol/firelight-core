@@ -257,7 +257,7 @@ contract FirelightVault is
     function periodAtTimestamp(uint48 timestamp) public view returns (uint256) {
         PeriodConfiguration memory periodConfiguration = periodConfigurationAtTimestamp(timestamp);
         // solhint-disable-next-line max-line-length
-        return periodConfiguration.startingPeriod + _sinceEpoch(periodConfiguration.epoch) / periodConfiguration.duration;
+        return periodConfiguration.startingPeriod + _sinceEpoch(timestamp, periodConfiguration.epoch) / periodConfiguration.duration;
     }
 
     /**
@@ -862,7 +862,11 @@ contract FirelightVault is
     }
 
     function _sinceEpoch(uint48 epoch) private view returns (uint48) {
-        return Time.timestamp() - epoch;
+        return _sinceEpoch(Time.timestamp(), epoch);
+    }
+
+    function _sinceEpoch(uint48 timestamp, uint48 epoch) private pure returns (uint48) {
+        return timestamp - epoch;
     }
 
     function _addPeriodConfiguration(uint48 newEpoch, uint48 newDuration) private {
