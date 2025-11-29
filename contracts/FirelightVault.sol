@@ -265,7 +265,7 @@ contract FirelightVault is
     function periodAtTimestamp(uint48 timestamp) public view returns (uint256) {
         PeriodConfiguration memory periodConfiguration = periodConfigurationAtTimestamp(timestamp);
         // solhint-disable-next-line max-line-length
-        return periodConfiguration.startingPeriod + _sinceEpoch(timestamp, periodConfiguration.epoch) / periodConfiguration.duration;
+        return periodConfiguration.startingPeriod + _timestampSinceEpoch(timestamp, periodConfiguration.epoch) / periodConfiguration.duration;
     }
 
     /**
@@ -290,7 +290,7 @@ contract FirelightVault is
      */
     function currentPeriodStart() external view returns (uint48) {
         PeriodConfiguration memory currentPC = currentPeriodConfiguration();
-        return currentPC.epoch + (_sinceEpoch(currentPC.epoch) / currentPC.duration) * currentPC.duration;
+        return currentPC.epoch + (_nowSinceEpoch(currentPC.epoch) / currentPC.duration) * currentPC.duration;
     }
 
     /**
@@ -299,7 +299,7 @@ contract FirelightVault is
      */
     function currentPeriodEnd() public view returns (uint48) {
         PeriodConfiguration memory currentPC = currentPeriodConfiguration();
-        return currentPC.epoch + (_sinceEpoch(currentPC.epoch) / currentPC.duration + 1) * currentPC.duration;
+        return currentPC.epoch + (_nowSinceEpoch(currentPC.epoch) / currentPC.duration + 1) * currentPC.duration;
     }
 
     /**
@@ -869,11 +869,11 @@ contract FirelightVault is
         return shares.mulDiv(totAssets + 1, totSupply + 10 ** _decimalsOffset(), rounding);
     }
 
-    function _sinceEpoch(uint48 epoch) private view returns (uint48) {
-        return _sinceEpoch(Time.timestamp(), epoch);
+    function _nowSinceEpoch(uint48 epoch) private view returns (uint48) {
+        return _timestampSinceEpoch(Time.timestamp(), epoch);
     }
 
-    function _sinceEpoch(uint48 timestamp, uint48 epoch) private pure returns (uint48) {
+    function _timestampSinceEpoch(uint48 timestamp, uint48 epoch) private pure returns (uint48) {
         return timestamp - epoch;
     }
 
