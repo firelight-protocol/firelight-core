@@ -1,8 +1,8 @@
 {
   "name": "firelight-core",
-  "version": "0.0.1",
-  "author": "ITB Corp",
-  "license": "ISC",
+  "version": "0.0.2",
+  "author": "Firelight",
+  "license": "UNLICENSED",
   "scripts": {
     "compile": "hardhat compile && hardhat size-contracts --no-compile",
     "logs:on": "set SHOW_LOGS=true&& node scripts/command.js",
