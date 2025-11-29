@@ -25,15 +25,14 @@ const deployVault = async (config = {}) => {
     blocklister: blocklister.address,
     pauser: pauser.address,
     periodConfigurationUpdater: period_configuration_updater.address,
+    rescuer: rescuer.address,
     depositLimit: config.initial_deposit_limit,
     periodConfigurationDuration: config.period_configuration_duration
   }
-  const init_params = abi_coder.encode(['address','address','address','address','address','uint256','uint48'], Object.values(InitParams))
+  const init_params = abi_coder.encode(['address','address','address','address','address','address','uint256','uint48'], Object.values(InitParams))
 
   // Deploy vault using proxy
   firelight_vault = await upgrades.deployProxy(FirelightVaultFactory, [await token_contract.getAddress(), config.lst, config.lst, init_params])
-
-  await firelight_vault.grantRole(await firelight_vault.RESCUER_ROLE(), rescuer.address)
 
   const utils = {
     mintAndApprove: async (amount, user) => {

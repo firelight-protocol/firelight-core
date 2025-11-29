@@ -48,6 +48,7 @@ contract FirelightVault is
      * @param blocklister Address assigned the BLOCKLIST_ROLE at initialization.
      * @param pauser Address assigned the PAUSE_ROLE at initialization.
      * @param periodConfigurationUpdater Address assigned the PERIOD_CONFIGURATION_UPDATE_ROLE at initialization.
+     * @param rescuer Address assigned the RESCUER_ROLE at initialization.
      * @param depositLimit Initial total deposit limit.
      * @param periodConfigurationDuration Initial period duration of the vault.
      */
@@ -57,6 +58,7 @@ contract FirelightVault is
         address blocklister;
         address pauser;
         address periodConfigurationUpdater;
+        address rescuer;
         uint256 depositLimit;
         uint48 periodConfigurationDuration;
     }
@@ -211,6 +213,10 @@ contract FirelightVault is
 
         if (initParams.periodConfigurationUpdater != address(0)) {
             _grantRole(PERIOD_CONFIGURATION_UPDATE_ROLE, initParams.periodConfigurationUpdater);
+        }
+
+        if (initParams.rescuer != address(0)) {
+            _grantRole(RESCUER_ROLE, initParams.rescuer);
         }
     }
 
