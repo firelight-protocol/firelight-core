@@ -24,8 +24,11 @@ describe('Period update test', function() {
       deployVault.bind(null, { decimals:DECIMALS, initial_deposit_limit: INITIAL_DEPOSIT_LIMIT, period_configuration_duration: PERIOD_CONFIGURATION_DURATION })
     ))
 
-    // Fund the users with underlying, and approve the vault to spend users' tokens
-    await Promise.all(users.map(account => utils.mintAndApprove(DEPOSIT_AMOUNT, account)))
+    // Fund the users with underlying, and approve the vault to spend users' tokens.
+    // Sequential (not Promise.all): each mintAndApprove impersonates the same
+    // asset_manager; concurrent impersonation/stop calls race and surface as
+    // "Unknown account" inside hardhat.
+    for (const account of users) await utils.mintAndApprove(DEPOSIT_AMOUNT, account)
 
     // Perform a user deposit and a withdraw request for half of the deposit, that should be claimed on period 2 onwards
     await firelight_vault.connect(users[0]).deposit(DEPOSIT_AMOUNT, users[0])

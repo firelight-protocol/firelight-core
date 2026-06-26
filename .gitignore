@@ -5,6 +5,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
+soljson-latest.js
 
 # MacOS file
 .DS_Store
@@ -115,3 +116,25 @@ cache/
 !.env.sample
 
 docs/
+avante.md
+
+.claude/
+.vscode/
+
+coverage.json
+
+# Deployment outputs and per-network configs
+config/*.json
+!config/*.example.json
+deployments/*.json
+!deployments/.gitkeep
+
+# EngineRunner Markdown reports (matching + settlement) are runtime artifacts.
+scripts/order_matching_engine/reports/*.md
+!scripts/order_matching_engine/reports/.gitkeep
+
+edr-cache/
+
+.openzeppelin/
+
+scripts/deploy-testnet-predeposits/config.json

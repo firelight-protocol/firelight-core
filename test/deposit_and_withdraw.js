@@ -14,8 +14,11 @@ describe('Deposit and Withdraw test', function() {
       deployVault.bind(null, { decimals:DECIMALS, initial_deposit_limit: INITIAL_DEPOSIT_LIMIT })
     ))
 
-    // Fund the users with underlying, and approve the vault to spend users' tokens
-    await Promise.all(users.map(account => utils.mintAndApprove(DEPOSIT_AMOUNT, account)))
+    // Fund the users with underlying, and approve the vault to spend users' tokens.
+    // Sequential (not Promise.all): each mintAndApprove impersonates the same
+    // asset_manager; concurrent impersonation/stop calls race and surface as
+    // "Unknown account" inside hardhat.
+    for (const account of users) await utils.mintAndApprove(DEPOSIT_AMOUNT, account)
   })
 
   it('reverts when trying to deposit more than the deposit limit allows', async () => {

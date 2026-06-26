@@ -1,0 +1,73 @@
+{
+  "name": "Basic full match — single market, single order, no pro-rata",
+  "setup": {
+    "vault": {
+      "currentPeriod": 0,
+      "totalAssets": "0",
+      "periodDuration": 2592000
+    },
+    "capacityConfig": {
+      "minCAR": 10000,
+      "firstLossBufferBalance": "10000000000"
+    },
+    "premiumTokens": [
+      {
+        "name": "USDC",
+        "decimals": 6
+      }
+    ],
+    "initialProtocolConcentrations": [
+      {
+        "protocol": "Morpho",
+        "chainId": 1,
+        "maxProtocolConcentrationBps": 6000
+      }
+    ],
+    "markets": [
+      {
+        "protocol": "Morpho",
+        "market": "market-A",
+        "chainId": 1
+      }
+    ]
+  },
+  "matchingParams": {
+    "effectiveLeverage": 20000,
+    "assetPriceUSD": "1000000000000000000"
+  },
+  "orders": [
+    {
+      "buyer": "buyer1",
+      "beneficiary": "buyer1",
+      "premiumToken": "USDC",
+      "markets": [
+        {
+          "marketId": "1:Morpho:market-A",
+          "coverRateAnnual": 500,
+          "coverAmount": "5000000000000000000000"
+        }
+      ],
+      "orderType": "RENEWAL"
+    }
+  ],
+  "expected": {
+    "orders": [
+      {
+        "orderId": 0,
+        "status": "MATCHED",
+        "allocatedCoverAmount": "5000000000000000000000",
+        "allocatedCoverPerMarket": [
+          "5000000000000000000000"
+        ],
+        "allocatedPremiumAmount": "20547945205479452055"
+      }
+    ],
+    "totalAllocated": "5000000000000000000000",
+    "marketAllocated": {
+      "1:Morpho:market-A": "5000000000"
+    },
+    "premiumCollectorBalances": {
+      "USDC": "20547946"
+    }
+  }
+}

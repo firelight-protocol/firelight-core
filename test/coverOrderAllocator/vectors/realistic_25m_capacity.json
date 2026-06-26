@@ -1,0 +1,145 @@
+{
+  "name": "Realistic $25M capacity — 3 markets, mixed over/undersubscribed, multi-market new order partially fills",
+  "setup": {
+    "vault": {
+      "currentPeriod": 0,
+      "totalAssets": "5000000000000",
+      "periodDuration": 2592000
+    },
+    "capacityConfig": {
+      "minCAR": 12000,
+      "firstLossBufferBalance": "10000000000000"
+    },
+    "premiumTokens": [
+      {
+        "name": "USDC",
+        "decimals": 6
+      }
+    ],
+    "initialProtocolConcentrations": [
+      {
+        "protocol": "Morpho",
+        "chainId": 1,
+        "maxProtocolConcentrationBps": 4000
+      },
+      {
+        "protocol": "Aave",
+        "chainId": 10,
+        "maxProtocolConcentrationBps": 3500
+      },
+      {
+        "protocol": "Compound",
+        "chainId": 1,
+        "maxProtocolConcentrationBps": 2500
+      }
+    ],
+    "markets": [
+      {
+        "protocol": "Morpho",
+        "market": "market-A",
+        "chainId": 1
+      },
+      {
+        "protocol": "Aave",
+        "market": "market-B",
+        "chainId": 10
+      },
+      {
+        "protocol": "Compound",
+        "market": "market-C",
+        "chainId": 1
+      }
+    ]
+  },
+  "matchingParams": {
+    "effectiveLeverage": 20000,
+    "assetPriceUSD": "1000000000000000000"
+  },
+  "orders": [
+    {
+      "buyer": "buyer1",
+      "beneficiary": "buyer1",
+      "premiumToken": "USDC",
+      "markets": [
+        {
+          "marketId": "1:Morpho:market-A",
+          "coverRateAnnual": 300,
+          "coverAmount": "8000000000000000000000000"
+        }
+      ],
+      "orderType": "RENEWAL"
+    },
+    {
+      "buyer": "buyer2",
+      "beneficiary": "buyer2",
+      "premiumToken": "USDC",
+      "markets": [
+        {
+          "marketId": "10:Aave:market-B",
+          "coverRateAnnual": 250,
+          "coverAmount": "5000000000000000000000000"
+        }
+      ],
+      "orderType": "NEW"
+    },
+    {
+      "buyer": "buyer3",
+      "beneficiary": "buyer3",
+      "premiumToken": "USDC",
+      "markets": [
+        {
+          "marketId": "1:Morpho:market-A",
+          "coverRateAnnual": 300,
+          "coverAmount": "4000000000000000000000000"
+        },
+        {
+          "marketId": "1:Compound:market-C",
+          "coverRateAnnual": 200,
+          "coverAmount": "3000000000000000000000000"
+        }
+      ],
+      "orderType": "NEW"
+    }
+  ],
+  "expected": {
+    "orders": [
+      {
+        "orderId": 0,
+        "status": "MATCHED",
+        "allocatedCoverAmount": "8000000000000000000000000",
+        "allocatedCoverPerMarket": [
+          "8000000000000000000000000"
+        ],
+        "allocatedPremiumAmount": "19726027397260273972603"
+      },
+      {
+        "orderId": 1,
+        "status": "MATCHED",
+        "allocatedCoverAmount": "5000000000000000000000000",
+        "allocatedCoverPerMarket": [
+          "5000000000000000000000000"
+        ],
+        "allocatedPremiumAmount": "10273972602739726027398"
+      },
+      {
+        "orderId": 2,
+        "status": "PARTIAL",
+        "allocatedCoverAmount": "5000000000000000000000000",
+        "allocatedCoverPerMarket": [
+          "2000000000000000000000000",
+          "3000000000000000000000000"
+        ],
+        "allocatedPremiumAmount": "9863013698630136986302"
+      }
+    ],
+    "totalAllocated": "18000000000000000000000000",
+    "marketAllocated": {
+      "1:Morpho:market-A": "10000000000000",
+      "10:Aave:market-B": "5000000000000",
+      "1:Compound:market-C": "3000000000000"
+    },
+    "premiumCollectorBalances": {
+      "USDC": "39863013700"
+    }
+  }
+}

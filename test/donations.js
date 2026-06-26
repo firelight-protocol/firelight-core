@@ -14,8 +14,11 @@ describe('Donations test', function() {
     ))
     attacker = users[0]
 
-    // Fund the users with underlying, and approve the vault to spend users' tokens
-    await Promise.all(users.map(account => utils.mintAndApprove(DEPOSIT_AMOUNT, account)))
+    // Fund the users with underlying, and approve the vault to spend users' tokens.
+    // Sequential (not Promise.all): each mintAndApprove impersonates the same
+    // asset_manager; concurrent impersonation/stop calls race and surface as
+    // "Unknown account" inside hardhat.
+    for (const account of users) await utils.mintAndApprove(DEPOSIT_AMOUNT, account)
   })
 
   it('does not allow an attacker to profit by performing a donation', async () => {

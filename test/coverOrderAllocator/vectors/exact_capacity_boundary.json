@@ -1,0 +1,97 @@
+{
+  "name": "Exact capacity boundary — demand exceeds capacity by 1 wei, pro-rata leaves 1 wei unallocated",
+  "setup": {
+    "vault": {
+      "currentPeriod": 0,
+      "totalAssets": "0",
+      "periodDuration": 2592000
+    },
+    "capacityConfig": {
+      "minLeverage": 10000,
+      "maxLeverage": 50000,
+      "minCAR": 10000,
+      "firstLossBufferBalance": "1000000000"
+    },
+    "premiumTokens": [
+      {
+        "name": "USDC",
+        "decimals": 6
+      }
+    ],
+    "initialProtocolConcentrations": [
+      {
+        "protocol": "Morpho",
+        "chainId": 1,
+        "maxProtocolConcentrationBps": 10000
+      }
+    ],
+    "markets": [
+      {
+        "protocol": "Morpho",
+        "market": "market-A",
+        "chainId": 1
+      }
+    ]
+  },
+  "matchingParams": {
+    "effectiveLeverage": 10000,
+    "assetPriceUSD": "1000000000000000000"
+  },
+  "orders": [
+    {
+      "buyer": "buyer1",
+      "beneficiary": "buyer1",
+      "premiumToken": "USDC",
+      "markets": [
+        {
+          "marketId": "1:Morpho:market-A",
+          "coverRateAnnual": 500,
+          "coverAmount": "500000000000000000000"
+        }
+      ],
+      "orderType": "NEW"
+    },
+    {
+      "buyer": "buyer2",
+      "beneficiary": "buyer2",
+      "premiumToken": "USDC",
+      "markets": [
+        {
+          "marketId": "1:Morpho:market-A",
+          "coverRateAnnual": 500,
+          "coverAmount": "500000001000000000000"
+        }
+      ],
+      "orderType": "NEW"
+    }
+  ],
+  "expected": {
+    "orders": [
+      {
+        "orderId": 0,
+        "status": "PARTIAL",
+        "allocatedCoverAmount": "499999999500000000499",
+        "allocatedCoverPerMarket": [
+          "499999999500000000499"
+        ],
+        "allocatedPremiumAmount": "2054794518493150687"
+      },
+      {
+        "orderId": 1,
+        "status": "PARTIAL",
+        "allocatedCoverAmount": "500000000499999999500",
+        "allocatedCoverPerMarket": [
+          "500000000499999999500"
+        ],
+        "allocatedPremiumAmount": "2054794522602739724"
+      }
+    ],
+    "totalAllocated": "999999999999999999999",
+    "marketAllocated": {
+      "1:Morpho:market-A": "999999999"
+    },
+    "premiumCollectorBalances": {
+      "USDC": "4109590"
+    }
+  }
+}

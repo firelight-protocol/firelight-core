@@ -1,0 +1,95 @@
+{
+  "name": "Tiny order rounds to zero — pro-rata floor yields 0, order cancelled",
+  "setup": {
+    "vault": {
+      "currentPeriod": 0,
+      "totalAssets": "0",
+      "periodDuration": 2592000
+    },
+    "capacityConfig": {
+      "minCAR": 10000,
+      "firstLossBufferBalance": "2000000000"
+    },
+    "premiumTokens": [
+      {
+        "name": "USDC",
+        "decimals": 18
+      }
+    ],
+    "initialProtocolConcentrations": [
+      {
+        "protocol": "Morpho",
+        "chainId": 1,
+        "maxProtocolConcentrationBps": 5000
+      }
+    ],
+    "markets": [
+      {
+        "protocol": "Morpho",
+        "market": "market-A",
+        "chainId": 1
+      }
+    ]
+  },
+  "matchingParams": {
+    "effectiveLeverage": 10000,
+    "assetPriceUSD": "1000000000000000000"
+  },
+  "orders": [
+    {
+      "buyer": "buyer1",
+      "beneficiary": "buyer1",
+      "premiumToken": "USDC",
+      "markets": [
+        {
+          "marketId": "1:Morpho:market-A",
+          "coverRateAnnual": 500,
+          "coverAmount": "1000000000000"
+        }
+      ],
+      "orderType": "RENEWAL"
+    },
+    {
+      "buyer": "buyer2",
+      "beneficiary": "buyer2",
+      "premiumToken": "USDC",
+      "markets": [
+        {
+          "marketId": "1:Morpho:market-A",
+          "coverRateAnnual": 500,
+          "coverAmount": "2000000000000000000000"
+        }
+      ],
+      "orderType": "RENEWAL"
+    }
+  ],
+  "expected": {
+    "orders": [
+      {
+        "orderId": 0,
+        "status": "CANCELLED",
+        "allocatedCoverAmount": "0",
+        "allocatedCoverPerMarket": [
+          "0"
+        ],
+        "allocatedPremiumAmount": "0"
+      },
+      {
+        "orderId": 1,
+        "status": "PARTIAL",
+        "allocatedCoverAmount": "999999999",
+        "allocatedCoverPerMarket": [
+          "999999999"
+        ],
+        "allocatedPremiumAmount": "4109590"
+      }
+    ],
+    "totalAllocated": "999999999",
+    "marketAllocated": {
+      "1:Morpho:market-A": "999999999"
+    },
+    "premiumCollectorBalances": {
+      "USDC": "4109590"
+    }
+  }
+}

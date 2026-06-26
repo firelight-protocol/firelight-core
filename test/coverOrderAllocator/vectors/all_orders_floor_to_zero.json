@@ -1,0 +1,269 @@
+{
+  "name": "All orders floor to zero — 10 orders of 1 wei each, cap=9, every pro-rata floors to 0, all cancelled",
+  "setup": {
+    "vault": {
+      "currentPeriod": 0,
+      "totalAssets": "0",
+      "periodDuration": 2592000
+    },
+    "capacityConfig": {
+      "minLeverage": 10000,
+      "maxLeverage": 50000,
+      "minCAR": 10000,
+      "firstLossBufferBalance": "9"
+    },
+    "premiumTokens": [
+      {
+        "name": "USDC",
+        "decimals": 18
+      }
+    ],
+    "initialProtocolConcentrations": [
+      {
+        "protocol": "Morpho",
+        "chainId": 1,
+        "maxProtocolConcentrationBps": 10000
+      }
+    ],
+    "markets": [
+      {
+        "protocol": "Morpho",
+        "market": "market-A",
+        "chainId": 1
+      }
+    ]
+  },
+  "matchingParams": {
+    "effectiveLeverage": 10000,
+    "assetPriceUSD": "1000000000000000000"
+  },
+  "orders": [
+    {
+      "buyer": "buyer1",
+      "beneficiary": "buyer1",
+      "premiumToken": "USDC",
+      "markets": [
+        {
+          "marketId": "1:Morpho:market-A",
+          "coverRateAnnual": 500,
+          "coverAmount": "1000000000000"
+        }
+      ],
+      "orderType": "NEW"
+    },
+    {
+      "buyer": "buyer2",
+      "beneficiary": "buyer2",
+      "premiumToken": "USDC",
+      "markets": [
+        {
+          "marketId": "1:Morpho:market-A",
+          "coverRateAnnual": 500,
+          "coverAmount": "1000000000000"
+        }
+      ],
+      "orderType": "NEW"
+    },
+    {
+      "buyer": "buyer3",
+      "beneficiary": "buyer3",
+      "premiumToken": "USDC",
+      "markets": [
+        {
+          "marketId": "1:Morpho:market-A",
+          "coverRateAnnual": 500,
+          "coverAmount": "1000000000000"
+        }
+      ],
+      "orderType": "NEW"
+    },
+    {
+      "buyer": "buyer4",
+      "beneficiary": "buyer4",
+      "premiumToken": "USDC",
+      "markets": [
+        {
+          "marketId": "1:Morpho:market-A",
+          "coverRateAnnual": 500,
+          "coverAmount": "1000000000000"
+        }
+      ],
+      "orderType": "NEW"
+    },
+    {
+      "buyer": "buyer5",
+      "beneficiary": "buyer5",
+      "premiumToken": "USDC",
+      "markets": [
+        {
+          "marketId": "1:Morpho:market-A",
+          "coverRateAnnual": 500,
+          "coverAmount": "1000000000000"
+        }
+      ],
+      "orderType": "NEW"
+    },
+    {
+      "buyer": "buyer6",
+      "beneficiary": "buyer6",
+      "premiumToken": "USDC",
+      "markets": [
+        {
+          "marketId": "1:Morpho:market-A",
+          "coverRateAnnual": 500,
+          "coverAmount": "1000000000000"
+        }
+      ],
+      "orderType": "NEW"
+    },
+    {
+      "buyer": "buyer7",
+      "beneficiary": "buyer7",
+      "premiumToken": "USDC",
+      "markets": [
+        {
+          "marketId": "1:Morpho:market-A",
+          "coverRateAnnual": 500,
+          "coverAmount": "1000000000000"
+        }
+      ],
+      "orderType": "NEW"
+    },
+    {
+      "buyer": "buyer8",
+      "beneficiary": "buyer8",
+      "premiumToken": "USDC",
+      "markets": [
+        {
+          "marketId": "1:Morpho:market-A",
+          "coverRateAnnual": 500,
+          "coverAmount": "1000000000000"
+        }
+      ],
+      "orderType": "NEW"
+    },
+    {
+      "buyer": "buyer9",
+      "beneficiary": "buyer9",
+      "premiumToken": "USDC",
+      "markets": [
+        {
+          "marketId": "1:Morpho:market-A",
+          "coverRateAnnual": 500,
+          "coverAmount": "1000000000000"
+        }
+      ],
+      "orderType": "NEW"
+    },
+    {
+      "buyer": "buyer10",
+      "beneficiary": "buyer10",
+      "premiumToken": "USDC",
+      "markets": [
+        {
+          "marketId": "1:Morpho:market-A",
+          "coverRateAnnual": 500,
+          "coverAmount": "1000000000000"
+        }
+      ],
+      "orderType": "NEW"
+    }
+  ],
+  "expected": {
+    "orders": [
+      {
+        "orderId": 0,
+        "status": "CANCELLED",
+        "allocatedCoverAmount": "0",
+        "allocatedCoverPerMarket": [
+          "0"
+        ],
+        "allocatedPremiumAmount": "0"
+      },
+      {
+        "orderId": 1,
+        "status": "CANCELLED",
+        "allocatedCoverAmount": "0",
+        "allocatedCoverPerMarket": [
+          "0"
+        ],
+        "allocatedPremiumAmount": "0"
+      },
+      {
+        "orderId": 2,
+        "status": "CANCELLED",
+        "allocatedCoverAmount": "0",
+        "allocatedCoverPerMarket": [
+          "0"
+        ],
+        "allocatedPremiumAmount": "0"
+      },
+      {
+        "orderId": 3,
+        "status": "CANCELLED",
+        "allocatedCoverAmount": "0",
+        "allocatedCoverPerMarket": [
+          "0"
+        ],
+        "allocatedPremiumAmount": "0"
+      },
+      {
+        "orderId": 4,
+        "status": "CANCELLED",
+        "allocatedCoverAmount": "0",
+        "allocatedCoverPerMarket": [
+          "0"
+        ],
+        "allocatedPremiumAmount": "0"
+      },
+      {
+        "orderId": 5,
+        "status": "CANCELLED",
+        "allocatedCoverAmount": "0",
+        "allocatedCoverPerMarket": [
+          "0"
+        ],
+        "allocatedPremiumAmount": "0"
+      },
+      {
+        "orderId": 6,
+        "status": "CANCELLED",
+        "allocatedCoverAmount": "0",
+        "allocatedCoverPerMarket": [
+          "0"
+        ],
+        "allocatedPremiumAmount": "0"
+      },
+      {
+        "orderId": 7,
+        "status": "CANCELLED",
+        "allocatedCoverAmount": "0",
+        "allocatedCoverPerMarket": [
+          "0"
+        ],
+        "allocatedPremiumAmount": "0"
+      },
+      {
+        "orderId": 8,
+        "status": "CANCELLED",
+        "allocatedCoverAmount": "0",
+        "allocatedCoverPerMarket": [
+          "0"
+        ],
+        "allocatedPremiumAmount": "0"
+      },
+      {
+        "orderId": 9,
+        "status": "CANCELLED",
+        "allocatedCoverAmount": "0",
+        "allocatedCoverPerMarket": [
+          "0"
+        ],
+        "allocatedPremiumAmount": "0"
+      }
+    ],
+    "totalAllocated": "0",
+    "marketAllocated": {},
+    "premiumCollectorBalances": {}
+  }
+}
