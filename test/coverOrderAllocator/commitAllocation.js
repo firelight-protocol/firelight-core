@@ -795,6 +795,123 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
     })
   })
 
+  describe('cancelCommitAllocation', () => {
+    it('cancels the commitment, emits the event and allows a fresh commit for the period', async () => {
+      const ctx = await loadFixture(deployCoverOrderAllocator)
+      const { allocator, vault, usdc, firstLossBufferWallet, allocatorRole, configAdmin } = ctx
+      await usdc.mint(firstLossBufferWallet.address, ethers.parseUnits('10000', 6))
+      await vault.setTotalAssets(0)
+      await readyToMatch(ctx)
+
+      const badRoot = ethers.id('bad-root')
+      await allocator.connect(allocatorRole).commitAllocation(2, badRoot, 0)
+
+      await expect(allocator.connect(configAdmin).cancelCommitAllocation(2))
+        .to.emit(allocator, 'AllocationCommitmentCancelled').withArgs(2, badRoot)
+
+      const cleared = await allocator.getAllocationCommitment(2)
+      expect(cleared.root).to.equal(ethers.ZeroHash)
+      expect(cleared.committedAt).to.equal(0n)
+
+      // PeriodAlreadyCommitted no longer applies: a corrected commit can land
+      const goodRoot = ethers.id('good-root')
+      await allocator.connect(allocatorRole).commitAllocation(2, goodRoot, 0)
+      expect((await allocator.getAllocationCommitment(2)).root).to.equal(goodRoot)
+    })
+
+    it('blocks settlement against the cancelled root', async () => {
+      const ctx = await loadFixture(deployCoverOrderAllocator)
+      const { allocator, vault, usdc, firstLossBufferWallet, allocatorRole, configAdmin, buyer1, PERIOD_DURATION } = ctx
+      await usdc.mint(firstLossBufferWallet.address, ethers.parseUnits('10000', 6))
+      await vault.setTotalAssets(0)
+
+      const cover = ethers.parseUnits('1000', 18)
+      const premium = prorate(cover, 500, PERIOD_DURATION)
+      await ctx.fundAndApprove(buyer1, usdc, premium)
+      await createOrder(ctx, { buyer: buyer1, token: usdc, coverAmount: cover, rate: 500, orderType: NEW })
+
+      await readyToMatch(ctx)
+
+      const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, cover)], premium]])
+      await allocator.connect(allocatorRole).commitAllocation(2, root, cover)
+      await allocator.connect(configAdmin).cancelCommitAllocation(2)
+
+      await expect(allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], premium, getProof(tree, 0)))
+        .to.be.revertedWithCustomError(allocator, 'NoCommitForPeriod')
+    })
+
+    it('works while the price feed is stale, when recommitAllocation cannot', async () => {
+      const ctx = await loadFixture(deployCoverOrderAllocator)
+      const { allocator, vault, usdc, firstLossBufferWallet, allocatorRole, configAdmin, priceFeed } = ctx
+      await usdc.mint(firstLossBufferWallet.address, ethers.parseUnits('10000', 6))
+      await vault.setTotalAssets(0)
+      await readyToMatch(ctx)
+
+      await allocator.connect(allocatorRole).commitAllocation(2, ethers.id('bad-root'), 0)
+
+      // Oracle goes stale: recommit (which recomputes capacity) is unavailable...
+      await priceFeed.setUpdatedAt(1n)
+      await expect(allocator.connect(configAdmin).recommitAllocation(2, ethers.id('new-root'), 0))
+        .to.be.reverted
+
+      // ...but the emergency cancel still withdraws the bad root
+      await expect(allocator.connect(configAdmin).cancelCommitAllocation(2))
+        .to.emit(allocator, 'AllocationCommitmentCancelled')
+    })
+
+    it('reverts when no commit exists for the period', async () => {
+      const ctx = await loadFixture(deployCoverOrderAllocator)
+      const { allocator, configAdmin, vault } = ctx
+      await expect(allocator.connect(configAdmin).cancelCommitAllocation(await vault.currentPeriod()))
+        .to.be.revertedWithCustomError(allocator, 'NoCommitForPeriod')
+    })
+
+    it('reverts when period is not the current period', async () => {
+      const ctx = await loadFixture(deployCoverOrderAllocator)
+      const { allocator, vault, usdc, firstLossBufferWallet, allocatorRole, configAdmin } = ctx
+      await usdc.mint(firstLossBufferWallet.address, ethers.parseUnits('10000', 6))
+      await vault.setTotalAssets(0)
+      await readyToMatch(ctx)
+
+      await allocator.connect(allocatorRole).commitAllocation(2, ethers.id('root1'), 0)
+      await expect(allocator.connect(configAdmin).cancelCommitAllocation(3))
+        .to.be.revertedWithCustomError(allocator, 'InvalidCommitmentPeriod')
+    })
+
+    it('reverts if called without CONFIG_ADMIN_ROLE', async () => {
+      const ctx = await loadFixture(deployCoverOrderAllocator)
+      const { allocator, vault, usdc, firstLossBufferWallet, allocatorRole, curator } = ctx
+      await usdc.mint(firstLossBufferWallet.address, ethers.parseUnits('10000', 6))
+      await vault.setTotalAssets(0)
+      await readyToMatch(ctx)
+
+      await allocator.connect(allocatorRole).commitAllocation(2, ethers.id('root1'), 0)
+      await expect(allocator.connect(curator).cancelCommitAllocation(2))
+        .to.be.revertedWithCustomError(allocator, 'AccessControlUnauthorizedAccount')
+    })
+
+    it('reverts if settlements have already started', async () => {
+      const ctx = await loadFixture(deployCoverOrderAllocator)
+      const { allocator, vault, usdc, firstLossBufferWallet, allocatorRole, configAdmin, buyer1, PERIOD_DURATION } = ctx
+      await usdc.mint(firstLossBufferWallet.address, ethers.parseUnits('10000', 6))
+      await vault.setTotalAssets(0)
+
+      const cover = ethers.parseUnits('1000', 18)
+      const premium = prorate(cover, 500, PERIOD_DURATION)
+      await ctx.fundAndApprove(buyer1, usdc, premium)
+      await createOrder(ctx, { buyer: buyer1, token: usdc, coverAmount: cover, rate: 500, orderType: NEW })
+
+      await readyToMatch(ctx)
+
+      const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, cover)], premium]])
+      await allocator.connect(allocatorRole).commitAllocation(2, root, cover)
+      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], premium, getProof(tree, 0))
+
+      await expect(allocator.connect(configAdmin).cancelCommitAllocation(2))
+        .to.be.revertedWithCustomError(allocator, 'SettlementsAlreadyStarted')
+    })
+  })
+
   describe('divergenceTolerance band', () => {
     // Pushes a capacity config that differs from the fixture only in the tolerance.
     // Must be called while currentPeriod < 2 so it is effective at the commit period (2).

@@ -282,6 +282,13 @@ interface ICoverOrderAllocator {
     );
 
     /**
+     * @notice Emitted when a period's allocation commitment is cancelled before any settlement.
+     * @param period Period whose commitment was cancelled.
+     * @param merkleRoot Root of the cancelled commitment.
+     */
+    event AllocationCommitmentCancelled(uint256 indexed period, bytes32 merkleRoot);
+
+    /**
      * @notice Emitted when the premium collector address changes.
      * @param oldCollector Previous premium collector.
      * @param newCollector New premium collector.
@@ -535,6 +542,15 @@ interface ICoverOrderAllocator {
     /// @param newMerkleRoot New StandardMerkleTree root of settlement leaves.
     /// @param newTotalAllocated New declared sum of allocated cover, in canonical USD.
     function recommitAllocation(uint256 period, bytes32 newMerkleRoot, uint256 newTotalAllocated) external;
+
+    /// @notice Cancels a period's commitment if no orders have been settled yet. Only CONFIG_ADMIN_ROLE.
+    /// @dev Emergency path to withdraw a bad Merkle root without providing a replacement and
+    ///      without touching the price feed (unlike `recommitAllocation`, it works while the
+    ///      oracle is down or stale). After cancelling, `commitAllocation` can be called again
+    ///      for the period; if no new commit lands, pending orders expire unsettled and can be
+    ///      cleaned up via `cancelExpiredOrders`.
+    /// @param period Period whose commitment is cancelled; must equal the current vault period.
+    function cancelCommitAllocation(uint256 period) external;
 
     // =========================================================================
     // Admin functions

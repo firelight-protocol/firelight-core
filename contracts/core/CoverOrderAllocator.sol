@@ -347,14 +347,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
 
         CoverOrderAllocatorStorage storage $ = _getStorage();
 
-        // Recomputing capacity uses live oracle/FLB and `currentPeriodStart()`, which only
-        // correspond to the current period, so recommit is restricted to it.
-        uint256 currentPeriod = $.vault.currentPeriod();
-        if (period != currentPeriod) revert InvalidCommitmentPeriod(period, currentPeriod);
-
-        AllocationCommitment storage commit = $.allocationCommitments[period];
-        if (commit.root == bytes32(0)) revert NoCommitForPeriod();
-        if (commit.totalSettledCover > 0) revert SettlementsAlreadyStarted();
+        AllocationCommitment storage commit = _replaceableCommitment($, period);
 
         // Recompute capacity fresh (symmetric with commitAllocation) so recommit can capture
         // recovered price/FLB and stays bound to the period's real collateral within tolerance.
@@ -367,6 +360,38 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
         commit.committedAt = uint48(block.timestamp);
 
         emit AllocationCommitted(period, newMerkleRoot, freshCapacity, newTotalAllocated);
+    }
+
+    /**
+     * @inheritdoc ICoverOrderAllocator
+     * @dev Intentionally avoids `_computeAvailableCapacity` (and therefore the price feed):
+     *      withdrawing a bad root must remain possible while the oracle is down or stale,
+     *      which is exactly when `recommitAllocation` reverts.
+     */
+    function cancelCommitAllocation(uint256 period) external onlyRole(CONFIG_ADMIN_ROLE) {
+        CoverOrderAllocatorStorage storage $ = _getStorage();
+
+        bytes32 root = _replaceableCommitment($, period).root;
+
+        delete $.allocationCommitments[period];
+
+        emit AllocationCommitmentCancelled(period, root);
+    }
+
+    /// @dev Loads a period's commitment for replacement or cancellation, enforcing the shared
+    ///      guards: `period` must be the current vault period (live capacity and period-start
+    ///      reads only correspond to it), a commit must exist, and no order may have settled
+    ///      against it yet.
+    function _replaceableCommitment(
+        CoverOrderAllocatorStorage storage $,
+        uint256 period
+    ) private view returns (AllocationCommitment storage commit) {
+        uint256 currentPeriod = $.vault.currentPeriod();
+        if (period != currentPeriod) revert InvalidCommitmentPeriod(period, currentPeriod);
+
+        commit = $.allocationCommitments[period];
+        if (commit.root == bytes32(0)) revert NoCommitForPeriod();
+        if (commit.totalSettledCover > 0) revert SettlementsAlreadyStarted();
     }
 
     // =========================================================================

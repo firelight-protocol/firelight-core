@@ -97,6 +97,7 @@ contract MockIncidentManagerCoverOrderAllocator is ICoverOrderAllocator {
     function cancelCoverOrder(uint256) external pure override {}
     function cancelExpiredOrders(uint256[] calldata) external pure override {}
     function recommitAllocation(uint256, bytes32, uint256) external pure override {}
+    function cancelCommitAllocation(uint256) external pure override {}
 
     function setPremiumCollector(address) external pure override {}
     function addSupportedPremiumToken(address) external pure override {}
