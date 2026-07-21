@@ -1,5 +1,5 @@
 const { loadFixture } = require('@nomicfoundation/hardhat-network-helpers')
-const { deployCoverOrderAllocator, computeMarketId } = require('../setup/fixtures.js')
+const { deployCoverOrderAllocator, computeMarketId, computeProtocolConcentrationHash } = require('../setup/fixtures.js')
 const { expect } = require('chai')
 const { ethers } = require('hardhat')
 
@@ -226,7 +226,7 @@ describe('CoverOrderAllocator / admin + market management', function () {
       const expectedId = computeMarketId(42, 'NewProtocol', mb)
       const m = await allocator.getSupportedMarket(expectedId)
       expect(m.chainId).to.equal(42)
-      const concHash = await allocator.getProtocolConcentrationHash(m.chainId, m.protocol)
+      const concHash = computeProtocolConcentrationHash(m.chainId, m.protocol)
       expect(await allocator.getEffectiveProtocolConcentration(concHash)).to.equal(0)
     })
 
@@ -314,7 +314,7 @@ describe('CoverOrderAllocator / admin + market management', function () {
 
     it('settleCoverOrder / batchSettleCoverOrder require ALLOCATOR_ROLE', async () => {
       const { allocator, buyer1 } = await loadFixture(deployCoverOrderAllocator)
-      await expect(allocator.connect(buyer1).settleCoverOrder(0, [], 0, []))
+      await expect(allocator.connect(buyer1).settleCoverOrder(0, [], []))
         .to.be.revertedWithCustomError(allocator, 'AccessControlUnauthorizedAccount')
       await expect(allocator.connect(buyer1).batchSettleCoverOrder([]))
         .to.be.revertedWithCustomError(allocator, 'AccessControlUnauthorizedAccount')
@@ -344,17 +344,6 @@ describe('CoverOrderAllocator / admin + market management', function () {
       expect(await allocator.getEffectiveProtocolConcentration(concHashMorpho)).to.equal(4000)
       expect(await allocator.getEffectiveProtocolConcentration(concHashAave)).to.equal(4000)
       expect(await allocator.getEffectiveProtocolConcentration(compoundHash)).to.equal(4000)
-    })
-
-    it('getProtocolConcentrationHash is pure helper matching on-chain derivation', async () => {
-      const { allocator, computeProtocolConcentrationHash } = await loadFixture(deployCoverOrderAllocator)
-      expect(await allocator.getProtocolConcentrationHash(1, 'Morpho')).to.equal(computeProtocolConcentrationHash(1, 'Morpho'))
-    })
-
-    it('getMarketId is pure helper matching on-chain derivation', async () => {
-      const { allocator, marketIdA, constants } = await loadFixture(deployCoverOrderAllocator)
-      // marketIdA is computed off-chain by the fixture using the same formula the contract uses.
-      expect(await allocator.getMarketId(1, constants.PROTOCOL_MORPHO, constants.MARKET_A)).to.equal(marketIdA)
     })
 
     it('coverNFT() returns the address set in initialize', async () => {

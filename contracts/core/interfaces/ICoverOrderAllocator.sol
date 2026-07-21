@@ -21,7 +21,7 @@ import {CoverNFT} from "../CoverNFT.sol";
  * happens only at the boundaries:
  *
  *   - Off-chain: callers MUST normalize inputs (e.g. `MarketAllocationInput.coverAmount`,
- *     merkle leaf `allocatedCover` and `allocatedPremium`, `commitAllocation` totalAllocated)
+ *     merkle leaf `allocatedCover`, `commitAllocation` totalAllocated)
  *     from native decimals to canonical decimals before submitting.
  *   - On-chain transfers: premium `safeTransferFrom`, first-loss-buffer transfer, and
  *     `vault.payout()` are denormalized from canonical decimals back to each token's native
@@ -39,15 +39,16 @@ import {CoverNFT} from "../CoverNFT.sol";
  *   3. Read protocolConcentration caps via `getSupportedProtocolConcentrationHashes()` + `getEffectiveProtocolConcentration(hash)
  *   4. Compute capacity: `(config.firstLossBufferToken.balanceOf(config.firstLossBuffer)
  *      + vault.totalAssets() * assetPriceUSD / 10**priceFeedDecimals) * config.effectiveLeverage / config.minCAR`
- *   5. Run the matching algorithm → produces per-order `allocatedCoverPerMarket[]` + `allocatedPremium`
- *   6. Build a StandardMerkleTree with leaves: `(uint256 orderId, (bytes32,uint256)[] marketCoverAllocations, uint256 allocatedPremium)`
+ *   5. Run the matching algorithm → produces per-order `allocatedCoverPerMarket[]`
+ *   6. Build a StandardMerkleTree with leaves: `(uint256 orderId, (bytes32,uint256)[] marketCoverAllocations)`
+ *      (premiums are recomputed on-chain at settlement, pro-rata from each order's stored terms)
  *   7. Call `commitAllocation(commitmentPeriod, merkleRoot, totalAllocated)` to commit
  *   8. Call `batchSettleCoverOrder(params)` or `settleCoverOrder(...)` for each order with its Merkle proof
  *
  * ## Leaf encoding
  *
  * Double-hash per OpenZeppelin standard:
- *   `keccak256(bytes.concat(keccak256(abi.encode(orderId, marketCoverAllocations, allocatedPremium))))`
+ *   `keccak256(bytes.concat(keccak256(abi.encode(orderId, marketCoverAllocations))))`
  *
  * ## ProtocolConcentration cap
  *
@@ -148,7 +149,10 @@ interface ICoverOrderAllocator {
 
     /// @notice Full cover order record.
     struct CoverOrder {
+        // Slot: buyer (20) + orderType (1) + status (1).
         address buyer;
+        CoverOrderType orderType;
+        CoverOrderStatus status;
         address payoutRecipient;
         /// Off-chain beneficiary reference.
         string beneficiaryAddress;
@@ -159,8 +163,6 @@ interface ICoverOrderAllocator {
         uint256 totalPremiumAmount;
         /// Cover-amount-weighted average annual rate, in bps.
         uint256 weightedAvgRate;
-        CoverOrderType orderType;
-        CoverOrderStatus status;
         /// Total cover allocated on settle, in canonical USD.
         uint256 allocatedCoverAmount;
         /// Premium charged for the allocated cover, in canonical USD.
@@ -214,8 +216,6 @@ interface ICoverOrderAllocator {
     struct SettleParams {
         uint256 orderId;
         MarketCoverAllocation[] marketCoverAllocations;
-        /// Premium charged for the allocated cover, in canonical USD.
-        uint256 allocatedPremium;
         /// Merkle proof of the order's leaf against the period commitment root.
         bytes32[] proof;
     }
@@ -319,7 +319,11 @@ interface ICoverOrderAllocator {
      * @param oldShareBps Previous cap, in bps.
      * @param newShareBps New cap, in bps, effective at currentPeriod() + 1.
      */
-    event ProtocolConcentrationUpdated(bytes32 indexed protocolConcentrationHash, uint256 oldShareBps, uint256 newShareBps);
+    event ProtocolConcentrationUpdated(
+        bytes32 indexed protocolConcentrationHash,
+        uint256 oldShareBps,
+        uint256 newShareBps
+    );
 
     /**
      * @notice Emitted when a premium token is whitelisted.
@@ -412,14 +416,6 @@ interface ICoverOrderAllocator {
     /// @param allocation Cumulative cover for the group, in canonical USD.
     /// @param capacity Group cap, in canonical USD.
     error ProtocolConcentrationOverflow(uint256 allocation, uint256 capacity);
-    /// @notice Thrown when an order's allocated premium exceeds the premium it owes.
-    /// @param allocation Allocated premium, in canonical USD.
-    /// @param capacity Premium owed by the order, in canonical USD.
-    error PremiumAllocationOverflow(uint256 allocation, uint256 capacity);
-    /// @notice Thrown when the leaf premium does not match the expected premium.
-    /// @param leafPremium Premium encoded in the Merkle leaf.
-    /// @param expectedPremium Premium computed on-chain.
-    error PremiumMismatch(uint256 leafPremium, uint256 expectedPremium);
     /// @notice Thrown when cumulative settled cover exceeds the declared allocation.
     /// @param allocation Cumulative settled cover, in canonical USD.
     /// @param capacity Declared allocation, in canonical USD.
@@ -503,27 +499,27 @@ interface ICoverOrderAllocator {
     /// @param commitmentPeriod The period the caller intends to match. Must equal
     ///        `vault.currentPeriod()` at execution time, otherwise the call reverts.
     /// @param merkleRoot Root of the StandardMerkleTree containing settlement leaves.
-    ///        Each leaf encodes `(orderId, MarketCoverAllocation[], allocatedPremium)`
-    ///        with `allocatedCover` and `allocatedPremium` in canonical USD.
+    ///        Each leaf encodes `(orderId, MarketCoverAllocation[])` with
+    ///        `allocatedCover` in canonical USD.
     /// @param totalAllocated Sum of all allocated cover across all orders in the tree,
     ///        in canonical USD.
     function commitAllocation(uint256 commitmentPeriod, bytes32 merkleRoot, uint256 totalAllocated) external;
 
     /// @notice Settles a single order against the committed Merkle root. Only ALLOCATOR_ROLE.
+    /// @dev The premium is computed on-chain, pro-rata per market from the order's stored
+    ///      rates and the vault's period duration — never taken from the caller or the leaf.
     /// @param orderId Order to settle.
     /// @param marketCoverAllocations Per-market allocated cover, in canonical USD;
     ///        order and market ids must match the order's markets.
-    /// @param allocatedPremium Premium charged for the allocated cover, in canonical USD.
     /// @param proof Merkle proof of the leaf for this order against the period commitment root.
     function settleCoverOrder(
         uint256 orderId,
         MarketCoverAllocation[] calldata marketCoverAllocations,
-        uint256 allocatedPremium,
         bytes32[] calldata proof
     ) external;
 
     /// @notice Settles multiple orders in a single transaction. Only ALLOCATOR_ROLE.
-    /// @param params Per-order settle parameters (orderId, allocations, premium, proof).
+    /// @param params Per-order settle parameters (orderId, allocations, proof).
     function batchSettleCoverOrder(SettleParams[] calldata params) external;
 
     /// @notice Cancels a pending cover order. Only CURATOR_ROLE.
@@ -679,22 +675,24 @@ interface ICoverOrderAllocator {
     ///         May include entries currently set to 0 bps (disabled).
     function getSupportedProtocolConcentrationHashes() external view returns (bytes32[] memory);
 
-    /// @notice Pure helper: derives the protocolConcentration hash from raw chainId + protocol.
-    function getProtocolConcentrationHash(uint64 chainId, string calldata protocol) external pure returns (bytes32);
-
-    /// @notice Pure helper: derives the marketId from raw (chainId, protocol, market).
-    function getMarketId(uint64 chainId, string calldata protocol, bytes32 market) external pure returns (bytes32);
-
     /// @notice Returns the (protocol, chainId) tuple that originated the protocolConcentration hash.
-    function getProtocolConcentrationFromHash(bytes32 protocolConcentrationHash) external view returns (ProtocolConcentration memory);
+    function getProtocolConcentrationFromHash(
+        bytes32 protocolConcentrationHash
+    ) external view returns (ProtocolConcentration memory);
 
     /// @notice ProtocolConcentration cap (bps) effective at currentPeriod() + 1.
     function getEffectiveProtocolConcentration(bytes32 protocolConcentrationHash) external view returns (uint256);
 
     /// @notice ProtocolConcentration cap (bps) active at the given `period`. Reads from the
     ///         checkpoint history — useful for auditing past settlements.
-    function getProtocolConcentrationAt(bytes32 protocolConcentrationHash, uint256 period) external view returns (uint256);
+    function getProtocolConcentrationAt(
+        bytes32 protocolConcentrationHash,
+        uint256 period
+    ) external view returns (uint256);
 
     /// @notice Cumulative settled cover for a specific protocolConcentration group in a given period.
-    function getProtocolConcentrationSettledCover(uint256 period, bytes32 protocolConcentrationHash) external view returns (uint256);
+    function getProtocolConcentrationSettledCover(
+        uint256 period,
+        bytes32 protocolConcentrationHash
+    ) external view returns (uint256);
 }

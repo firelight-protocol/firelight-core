@@ -18,10 +18,10 @@ const prorate = (cover, rateAnnualBps, duration) => {
   return (num + den - 1n) / den
 }
 
-// Build a merkle tree from settle entries: [orderId, allocatedCoverPerMarket[], allocatedPremium]
+// Build a merkle tree from settle entries: [orderId, allocatedCoverPerMarket[]]
 const buildTree = (entries) => {
   if (entries.length === 0) return { tree: null, root: ethers.ZeroHash }
-  const tree = StandardMerkleTree.of(entries, ['uint256', '(bytes32,uint256)[]', 'uint256'])
+  const tree = StandardMerkleTree.of(entries.map(e => e.slice(0, 2)), ['uint256', '(bytes32,uint256)[]'])
   return { tree, root: tree.root }
 }
 
@@ -243,7 +243,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
     it('settleCoverOrder reverts if called by non-curator', async () => {
       const ctx = await loadFixture(deployCoverOrderAllocator)
-      await expect(ctx.allocator.connect(ctx.buyer1).settleCoverOrder(0, [], 0, []))
+      await expect(ctx.allocator.connect(ctx.buyer1).settleCoverOrder(0, [], []))
         .to.be.revertedWithCustomError(ctx.allocator, 'AccessControlUnauthorizedAccount')
     })
 
@@ -277,7 +277,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, cover)], premium]])
       await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
-      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], premium, getProof(tree, 0))
+      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0))
 
       const o = await allocator.getCoverOrder(0)
       expect(o.status).to.equal(Status.MATCHED)
@@ -308,7 +308,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await readyToMatch(ctx)
       const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, cover)], premium]])
       await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
-      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], premium, getProof(tree, 0))
+      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0))
 
       expect(await coverNFT.ownerOf(0)).to.equal(buyer1.address)
       expect(await coverNFT.balanceOf(buyer1.address)).to.equal(1n)
@@ -338,7 +338,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       const allocPremium = prorate(allocCover, 500, PERIOD_DURATION)
       const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, allocCover)], allocPremium]])
       await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, allocCover)
-      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, allocCover)], allocPremium, getProof(tree, 0))
+      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, allocCover)], getProof(tree, 0))
 
       const o = await allocator.getCoverOrder(0)
       expect(o.status).to.equal(Status.PARTIAL)
@@ -362,7 +362,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
 
       // Wrong cover amount → proof won't verify
-      await expect(allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover - 1n)], premium, getProof(tree, 0)))
+      await expect(allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover - 1n)], getProof(tree, 0)))
         .to.be.revertedWithCustomError(allocator, 'InvalidProof')
     })
 
@@ -381,9 +381,9 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, cover)], premium]])
       await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
-      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], premium, getProof(tree, 0))
+      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0))
 
-      await expect(allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], premium, getProof(tree, 0)))
+      await expect(allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0)))
         .to.be.revertedWithCustomError(allocator, 'OrderNotPending')
     })
 
@@ -394,7 +394,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await readyToMatch(ctx)
 
       // No commit made — settle should fail
-      await expect(allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, 500n)], 1n, []))
+      await expect(allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, 500n)], []))
         .to.be.revertedWithCustomError(allocator, 'NoCommitForPeriod')
     })
 
@@ -420,9 +420,9 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       ])
       await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover) // only 1000 declared
 
-      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], premium, getProof(tree, 0))
+      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0))
       // Second settle would push totalSettledCover to 2000 > 1000 declared
-      await expect(allocator.connect(allocatorRole).settleCoverOrder(1, [mcaStruct(ctx.marketIdA, cover)], premium, getProof(tree, 1)))
+      await expect(allocator.connect(allocatorRole).settleCoverOrder(1, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 1)))
         .to.be.revertedWithCustomError(allocator, 'TotalSettledOverflow')
     })
 
@@ -448,8 +448,8 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover * 2n)
 
       await allocator.connect(allocatorRole).batchSettleCoverOrder([
-        { orderId: 0, marketCoverAllocations: [mcaStruct(ctx.marketIdA, cover)], allocatedPremium: premium, proof: getProof(tree, 0) },
-        { orderId: 1, marketCoverAllocations: [mcaStruct(ctx.marketIdA, cover)], allocatedPremium: premium, proof: getProof(tree, 1) }
+        { orderId: 0, marketCoverAllocations: [mcaStruct(ctx.marketIdA, cover)], proof: getProof(tree, 0) },
+        { orderId: 1, marketCoverAllocations: [mcaStruct(ctx.marketIdA, cover)], proof: getProof(tree, 1) }
       ])
 
       expect((await allocator.getCoverOrder(0)).status).to.equal(Status.MATCHED)
@@ -465,7 +465,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       const { tree, root } = buildTree([[999n, [mca(ctx.marketIdA, 100n)], 1n]])
       await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, 100n)
-      await expect(allocator.connect(allocatorRole).settleCoverOrder(999, [mcaStruct(ctx.marketIdA, 100n)], 1n, getProof(tree, 999)))
+      await expect(allocator.connect(allocatorRole).settleCoverOrder(999, [mcaStruct(ctx.marketIdA, 100n)], getProof(tree, 999)))
         .to.be.revertedWithCustomError(allocator, 'InvalidOrder')
     })
 
@@ -487,7 +487,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
       await expect(allocator.connect(allocatorRole).settleCoverOrder(0,
         [mcaStruct(ctx.marketIdA, cover / 2n), mcaStruct(ctx.marketIdB, cover / 2n)],
-        premium, getProof(tree, 0)
+        getProof(tree, 0)
       )).to.be.revertedWithCustomError(allocator, 'InvalidAllocationMarketsLength')
     })
 
@@ -508,7 +508,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       const { tree, root } = buildTree([[0n, [mca(marketIdB, cover)], premium]])
       await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
       await expect(allocator.connect(allocatorRole).settleCoverOrder(0,
-        [mcaStruct(marketIdB, cover)], premium, getProof(tree, 0)
+        [mcaStruct(marketIdB, cover)], getProof(tree, 0)
       )).to.be.revertedWithCustomError(allocator, 'MarketIdMismatch')
     })
 
@@ -528,7 +528,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       const { tree, root } = buildTree([[0n, [mca(marketIdA, overCover)], premium]])
       await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, overCover)
       await expect(allocator.connect(allocatorRole).settleCoverOrder(0,
-        [mcaStruct(marketIdA, overCover)], premium, getProof(tree, 0)
+        [mcaStruct(marketIdA, overCover)], getProof(tree, 0)
       )).to.be.revertedWithCustomError(allocator, 'MarketAllocationOverflow')
     })
 
@@ -547,51 +547,32 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       const { tree, root } = buildTree([[0n, [mca(marketIdA, 0n)], premium]])
       await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
       await expect(allocator.connect(allocatorRole).settleCoverOrder(0,
-        [mcaStruct(marketIdA, 0n)], premium, getProof(tree, 0)
+        [mcaStruct(marketIdA, 0n)], getProof(tree, 0)
       )).to.be.revertedWithCustomError(allocator, 'ZeroAllocation')
     })
 
-    it('settleCoverOrder reverts when allocatedPremium exceeds order premium', async () => {
+    it('settleCoverOrder charges the exact pro-rata premium for a partial fill', async () => {
       const ctx = await loadFixture(deployCoverOrderAllocator)
       const { allocator, vault, usdc, firstLossBufferWallet, allocatorRole, curator, buyer1, PERIOD_DURATION, marketIdA } = ctx
       await usdc.mint(firstLossBufferWallet.address, ethers.parseUnits('10000', 6))
       await vault.setTotalAssets(0)
 
       const cover = ethers.parseUnits('1000', 18)
-      const premium = prorate(cover, 500, PERIOD_DURATION)
       const halfCover = cover / 2n
-      const overPremium = premium + 1n
-      await ctx.fundAndApprove(buyer1, usdc, overPremium)
+      const halfPremium = prorate(halfCover, 500, PERIOD_DURATION)
+      await ctx.fundAndApprove(buyer1, usdc, halfPremium)
       await createOrder(ctx, { buyer: buyer1, token: usdc, coverAmount: cover, rate: 500, orderType: NEW })
       await readyToMatch(ctx)
 
-      // Partial cover but premium exceeding total
-      const { tree, root } = buildTree([[0n, [mca(marketIdA, halfCover)], overPremium]])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
+      // The premium is not in the leaf: the contract derives it from the order's stored
+      // rate and period duration, so a partial fill always pays exactly pro-rata.
+      const { tree, root } = buildTree([[0n, [mca(marketIdA, halfCover)]]])
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(), root, cover)
       await expect(allocator.connect(allocatorRole).settleCoverOrder(0,
-        [mcaStruct(marketIdA, halfCover)], overPremium, getProof(tree, 0)
-      )).to.be.revertedWithCustomError(allocator, 'PremiumAllocationOverflow')
-    })
+        [mcaStruct(marketIdA, halfCover)], getProof(tree, 0)
+      )).to.emit(allocator, 'CoverOrderSettled').withArgs(0, Status.PARTIAL, halfCover, halfPremium)
 
-    it('settleCoverOrder reverts PremiumMismatch on full match when allocatedPremium != totalPremium', async () => {
-      const ctx = await loadFixture(deployCoverOrderAllocator)
-      const { allocator, vault, usdc, firstLossBufferWallet, allocatorRole, curator, buyer1, PERIOD_DURATION, marketIdA } = ctx
-      await usdc.mint(firstLossBufferWallet.address, ethers.parseUnits('10000', 6))
-      await vault.setTotalAssets(0)
-
-      const cover = ethers.parseUnits('1000', 18)
-      const premium = prorate(cover, 500, PERIOD_DURATION)
-      const wrongPremium = premium - 1n // strictly less, but full cover match → triggers mismatch
-      await ctx.fundAndApprove(buyer1, usdc, premium)
-      await createOrder(ctx, { buyer: buyer1, token: usdc, coverAmount: cover, rate: 500, orderType: NEW })
-      await readyToMatch(ctx)
-
-      // Full cover (allocated == totalCoverAmount) but premium below totalPremium → PremiumMismatch
-      const { tree, root } = buildTree([[0n, [mca(marketIdA, cover)], wrongPremium]])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
-      await expect(allocator.connect(allocatorRole).settleCoverOrder(0,
-        [mcaStruct(marketIdA, cover)], wrongPremium, getProof(tree, 0)
-      )).to.be.revertedWithCustomError(allocator, 'PremiumMismatch').withArgs(wrongPremium, premium)
+      expect((await allocator.getCoverOrder(0)).allocatedPremiumAmount).to.equal(halfPremium)
     })
 
     it('getProtocolConcentrationSettledCover returns correct value after settle', async () => {
@@ -608,7 +589,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       const { tree, root } = buildTree([[0n, [mca(marketIdA, cover)], premium]])
       await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
-      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover)], premium, getProof(tree, 0))
+      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover)], getProof(tree, 0))
 
       expect(await allocator.getProtocolConcentrationSettledCover(2, concHashMorpho)).to.equal(cover)
     })
@@ -631,7 +612,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       // Commit succeeds (no transfer happens)
       await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
       // Settle reverts because buyer hasn't approved
-      await expect(allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], premium, getProof(tree, 0)))
+      await expect(allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0)))
         .to.be.reverted
     })
   })
@@ -661,9 +642,9 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       ])
       await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover1 + cover2)
 
-      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover1)], p1, getProof(tree, 0))
+      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover1)], getProof(tree, 0))
       // Second settle pushes Morpho protocolConcentration to 15000 > 12000 cap
-      await expect(allocator.connect(allocatorRole).settleCoverOrder(1, [mcaStruct(marketIdA, cover2)], p2, getProof(tree, 1)))
+      await expect(allocator.connect(allocatorRole).settleCoverOrder(1, [mcaStruct(marketIdA, cover2)], getProof(tree, 1)))
         .to.be.revertedWithCustomError(allocator, 'ProtocolConcentrationOverflow')
     })
 
@@ -691,8 +672,8 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       ])
       await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, coverA + coverB)
 
-      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, coverA)], pA, getProof(tree, 0))
-      await allocator.connect(allocatorRole).settleCoverOrder(1, [mcaStruct(marketIdB, coverB)], pB, getProof(tree, 1))
+      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, coverA)], getProof(tree, 0))
+      await allocator.connect(allocatorRole).settleCoverOrder(1, [mcaStruct(marketIdB, coverB)], getProof(tree, 1))
 
       expect((await allocator.getCoverOrder(0)).status).to.equal(Status.MATCHED)
       expect((await allocator.getCoverOrder(1)).status).to.equal(Status.MATCHED)
@@ -788,7 +769,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, cover)], premium]])
       await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
-      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], premium, getProof(tree, 0))
+      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0))
 
       await expect(allocator.connect(configAdmin).recommitAllocation(2, ethers.id('new'), cover))
         .to.be.revertedWithCustomError(allocator, 'SettlementsAlreadyStarted')
@@ -836,7 +817,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await allocator.connect(allocatorRole).commitAllocation(2, root, cover)
       await allocator.connect(configAdmin).cancelCommitAllocation(2)
 
-      await expect(allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], premium, getProof(tree, 0)))
+      await expect(allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0)))
         .to.be.revertedWithCustomError(allocator, 'NoCommitForPeriod')
     })
 
@@ -905,7 +886,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, cover)], premium]])
       await allocator.connect(allocatorRole).commitAllocation(2, root, cover)
-      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], premium, getProof(tree, 0))
+      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0))
 
       await expect(allocator.connect(configAdmin).cancelCommitAllocation(2))
         .to.be.revertedWithCustomError(allocator, 'SettlementsAlreadyStarted')
@@ -1050,7 +1031,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       // settle: per-protocol cap = 100% × effective(2100) = 2100 ≥ 2050 → settles.
       // (Under strict concentration the cap would be 2000 and this would revert ProtocolConcentrationOverflow.)
-      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover)], premium, getProof(tree, 0))
+      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover)], getProof(tree, 0))
 
       const order = await allocator.getCoverOrder(0)
       expect(order.status).to.equal(Status.MATCHED)
@@ -1116,7 +1097,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, cover)], premium]])
       await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
-      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], premium, getProof(tree, 0))
+      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0))
 
       const [period, allocated, beneficiary] = await ctx.allocator.getCoverOrderMarketInfo(0, ctx.marketIdA)
       expect(period).to.equal(2n)
@@ -1153,7 +1134,6 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await allocator.connect(allocatorRole).settleCoverOrder(
         0,
         [mcaStruct(ctx.marketIdA, coverA), mcaStruct(ctx.marketIdB, coverB)],
-        premium,
         getProof(tree, 0)
       )
 
@@ -1192,7 +1172,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       // Advance one period: order.period (2) < currentPeriod (3) → settle window expired
       await ctx.advanceToPeriod(3)
       await expect(
-        allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], premium, getProof(tree, 0))
+        allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0))
       ).to.be.revertedWithCustomError(allocator, 'SettleWindowExpired')
     })
 
@@ -1212,7 +1192,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
 
       // Still at order.period (2) — settle must succeed
-      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], premium, getProof(tree, 0))
+      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0))
       const o = await allocator.getCoverOrder(0)
       expect(o.status).to.equal(Status.MATCHED)
     })
@@ -1313,7 +1293,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       // Even if currentPeriod were rewound (hypothetically), the order is no longer PENDING
       // → SettleWindowExpired is checked AFTER OrderNotPending in _settleCoverOrder, so the latter wins.
       await expect(
-        allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], premium, getProof(tree, 0))
+        allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0))
       ).to.be.revertedWithCustomError(allocator, 'OrderNotPending')
     })
   })
@@ -1361,11 +1341,11 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       const expiresAt = block.timestamp + GRACE
 
       await expect(
-        allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover)], premium, getProof(tree, 0))
+        allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover)], getProof(tree, 0))
       ).to.be.revertedWithCustomError(allocator, 'GracePeriodActive').withArgs(expiresAt)
 
       await time.increaseTo(expiresAt)
-      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover)], premium, getProof(tree, 0))
+      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover)], getProof(tree, 0))
       expect((await allocator.getCoverOrder(0)).status).to.equal(Status.MATCHED)
     })
 
@@ -1398,11 +1378,11 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       // Old grace window expired but the new one (post-resubmit) hasn't.
       await time.increaseTo(firstExpiry)
       await expect(
-        allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover)], premium, getProof(tree, 0))
+        allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover)], getProof(tree, 0))
       ).to.be.revertedWithCustomError(allocator, 'GracePeriodActive').withArgs(newExpiry)
 
       await time.increaseTo(newExpiry)
-      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover)], premium, getProof(tree, 0))
+      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover)], getProof(tree, 0))
       expect((await allocator.getCoverOrder(0)).status).to.equal(Status.MATCHED)
     })
 
@@ -1421,7 +1401,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       expect(await allocator.settlementGracePeriod()).to.equal(0)
       const { tree, root } = buildTree([[0n, [mca(marketIdA, cover)], premium]])
       await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
-      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover)], premium, getProof(tree, 0))
+      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover)], getProof(tree, 0))
       expect((await allocator.getCoverOrder(0)).status).to.equal(Status.MATCHED)
     })
   })

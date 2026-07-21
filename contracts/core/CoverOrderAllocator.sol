@@ -138,7 +138,6 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
     /// @param params Initialization parameters; see {ICoverOrderAllocator.InitParams}.
     function initialize(InitParams calldata params) external initializer {
         _requireNonZero(address(params.vault));
-        _requireNonZero(params.premiumCollector);
         _requireNonZero(address(params.coverNFT));
         _requireNonZero(params.admin);
         _requireNonZero(params.adminRole);
@@ -151,19 +150,16 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
 
         CoverOrderAllocatorStorage storage $ = _getStorage();
         $.vault = params.vault;
-        $.premiumCollector = params.premiumCollector;
         $.coverNFT = params.coverNFT;
 
         $.vaultAssetDecimals = _readDecimals(params.vault.asset());
 
+        _setPremiumCollector(params.premiumCollector);
         _setMaxPriceAge(params.maxPriceAge);
         _setPriceFeedAdapter(params.priceFeedAdapter);
 
         for (uint256 i; i < params.premiumTokens.length; ++i) {
-            address token = params.premiumTokens[i];
-            _requireNonZero(token);
-            $.premiumTokenDecimals[token] = _readDecimals(token);
-            $.supportedPremiumTokens.add(token);
+            _addSupportedPremiumToken(params.premiumTokens[i]);
         }
 
         for (uint256 i; i < params.initialProtocolConcentrations.length; ++i) {
@@ -270,11 +266,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
             totalCoverAmount += ma.coverAmount;
             sumWeightedRate += uint256(ma.coverRateAnnual) * ma.coverAmount;
 
-            totalPremiumAmount += ma.coverAmount.mulDiv(
-                uint256(ma.coverRateAnnual) * periodDuration,
-                BPS_DENOMINATOR * SECONDS_PER_YEAR,
-                Math.Rounding.Ceil
-            );
+            totalPremiumAmount += _calculatePremium(ma.coverAmount, ma.coverRateAnnual, periodDuration);
 
             MarketAllocation storage stored = $.orderMarkets[coverOrderId].push();
             stored.marketId = ma.marketId;
@@ -284,6 +276,19 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
         }
 
         return (totalCoverAmount, totalPremiumAmount, sumWeightedRate);
+    }
+
+    function _calculatePremium(
+        uint256 coverAmount,
+        uint32 coverRateAnnual,
+        uint256 periodDuration
+    ) private pure returns (uint256) {
+        return
+            coverAmount.mulDiv(
+                uint256(coverRateAnnual) * periodDuration,
+                BPS_DENOMINATOR * SECONDS_PER_YEAR,
+                Math.Rounding.Ceil
+            );
     }
 
     /// @dev Validates a single market allocation (zero-values, min cover, duplicates,
@@ -410,28 +415,21 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
     function settleCoverOrder(
         uint256 orderId,
         MarketCoverAllocation[] calldata marketCoverAllocations,
-        uint256 allocatedPremium,
         bytes32[] calldata proof
     ) external nonReentrant onlyRole(ALLOCATOR_ROLE) {
-        _settleCoverOrder(orderId, marketCoverAllocations, allocatedPremium, proof);
+        _settleCoverOrder(orderId, marketCoverAllocations, proof);
     }
 
     /// @inheritdoc ICoverOrderAllocator
     function batchSettleCoverOrder(SettleParams[] calldata params) external nonReentrant onlyRole(ALLOCATOR_ROLE) {
         for (uint256 i; i < params.length; ++i) {
-            _settleCoverOrder(
-                params[i].orderId,
-                params[i].marketCoverAllocations,
-                params[i].allocatedPremium,
-                params[i].proof
-            );
+            _settleCoverOrder(params[i].orderId, params[i].marketCoverAllocations, params[i].proof);
         }
     }
 
     function _settleCoverOrder(
         uint256 orderId,
         MarketCoverAllocation[] calldata marketCoverAllocations,
-        uint256 allocatedPremium,
         bytes32[] calldata proof
     ) internal {
         CoverOrderAllocatorStorage storage $ = _getStorage();
@@ -451,13 +449,16 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
         if (block.timestamp < graceExpiresAt) revert GracePeriodActive(graceExpiresAt);
 
         // Verify merkle proof (double-hash leaf per OZ standard)
-        bytes32 leaf = keccak256(
-            bytes.concat(keccak256(abi.encode(orderId, marketCoverAllocations, allocatedPremium)))
-        );
+        bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(orderId, marketCoverAllocations))));
         if (!MerkleProof.verify(proof, commit.root, leaf)) revert InvalidProof();
 
-        // Sum allocated cover and enforce per-market protocolConcentration caps
+        // Sum allocated cover, recompute the premium pro-rata per market (same formula
+        // and rounding as order creation), and enforce per-market concentration caps.
+        // The duration read here matches the one used at creation: a committed period's
+        // configuration is immutable (vault updates only apply from future periods).
+        uint256 periodDuration = uint256($.vault.periodConfigurationAtNumber(order.period).duration);
         uint256 allocatedCover;
+        uint256 allocatedPremium;
         for (uint256 i; i < markets.length; ++i) {
             if (marketCoverAllocations[i].marketId != markets[i].marketId) revert MarketIdMismatch();
 
@@ -465,6 +466,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
             if (mCover > markets[i].coverAmount) revert MarketAllocationOverflow(mCover, markets[i].coverAmount);
 
             allocatedCover += mCover;
+            allocatedPremium += _calculatePremium(mCover, markets[i].coverRateAnnual, periodDuration);
 
             // Set settled amount
             markets[i].allocatedCoverAmount = mCover;
@@ -473,9 +475,11 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
             // The cap comes from the checkpoint active at order.period.
             Market storage mStored = $.supportedMarkets[marketCoverAllocations[i].marketId];
             bytes32 concHash = _getProtocolConcentrationHash(mStored.chainId, mStored.protocol);
-            uint256 newProtocolConcentrationCover = $.protocolConcentrationSettledCover[order.period][concHash] + mCover;
+            uint256 newProtocolConcentrationCover =
+                $.protocolConcentrationSettledCover[order.period][concHash] + mCover;
             uint256 protocolConcentrationCap =
-                (_getEffectiveProtocolConcentration(concHash, order.period) * commit.totalAvailableCapacity) / BPS_DENOMINATOR;
+                (_getEffectiveProtocolConcentration(concHash, order.period) * commit.totalAvailableCapacity) /
+                    BPS_DENOMINATOR;
             if (newProtocolConcentrationCover > protocolConcentrationCap)
                 revert ProtocolConcentrationOverflow(newProtocolConcentrationCover, protocolConcentrationCap);
 
@@ -483,32 +487,21 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
         }
 
         if (allocatedCover == 0) revert ZeroAllocation();
-        if (allocatedPremium > order.totalPremiumAmount)
-            revert PremiumAllocationOverflow(allocatedPremium, order.totalPremiumAmount);
 
-        // Derive status. Full match must commit to the exact total premium in the
-        // leaf so the merkle root and the on-chain charge stay consistent.
-        uint256 finalPremium;
-        if (allocatedCover == order.totalCoverAmount) {
-            if (allocatedPremium != order.totalPremiumAmount)
-                revert PremiumMismatch(allocatedPremium, order.totalPremiumAmount);
-            order.status = CoverOrderStatus.MATCHED;
-            finalPremium = order.totalPremiumAmount;
-        } else {
-            order.status = CoverOrderStatus.PARTIAL;
-            finalPremium = allocatedPremium;
-        }
+        // A full match allocates every market exactly, so the recomputed premium equals
+        // `totalPremiumAmount` by construction (same per-market formula and rounding).
+        order.status = allocatedCover == order.totalCoverAmount ? CoverOrderStatus.MATCHED : CoverOrderStatus.PARTIAL;
 
         order.allocatedCoverAmount = allocatedCover;
-        order.allocatedPremiumAmount = finalPremium;
+        order.allocatedPremiumAmount = allocatedPremium;
 
         commit.totalSettledCover += allocatedCover;
         if (commit.totalSettledCover > commit.totalDeclaredAllocated)
             revert TotalSettledOverflow(commit.totalSettledCover, commit.totalDeclaredAllocated);
-        commit.totalSettledPremium += finalPremium;
+        commit.totalSettledPremium += allocatedPremium;
 
         uint256 finalPremiumNative = Decimals.convert(
-            finalPremium,
+            allocatedPremium,
             CANONICAL_DECIMALS,
             $.premiumTokenDecimals[order.premiumToken],
             Math.Rounding.Ceil
@@ -517,7 +510,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
 
         $.coverNFT.safeMint(order.buyer, orderId);
 
-        emit CoverOrderSettled(orderId, order.status, allocatedCover, finalPremium);
+        emit CoverOrderSettled(orderId, order.status, allocatedCover, allocatedPremium);
     }
 
     // =========================================================================
@@ -559,6 +552,10 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
 
     /// @inheritdoc ICoverOrderAllocator
     function setPremiumCollector(address newCollector) external onlyRole(ADMIN_ROLE) {
+        _setPremiumCollector(newCollector);
+    }
+
+    function _setPremiumCollector(address newCollector) internal {
         _requireNonZero(newCollector);
 
         CoverOrderAllocatorStorage storage $ = _getStorage();
@@ -693,11 +690,22 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
 
         uint256 strictCapacity = availableCollateralCanonical.mulDiv(config.effectiveLeverage, config.minCAR);
         // Fold in the divergence tolerance as the period's effective capacity.
-        totalAvailableCapacity = strictCapacity.mulDiv(BPS_DENOMINATOR + config.divergenceToleranceBps, BPS_DENOMINATOR);
+        totalAvailableCapacity = strictCapacity.mulDiv(
+            BPS_DENOMINATOR + config.divergenceToleranceBps,
+            BPS_DENOMINATOR
+        );
     }
 
-    function _getEffectiveProtocolConcentration(bytes32 protocolConcentrationHash, uint256 period) internal view returns (uint256) {
-        return uint256(_getStorage().protocolConcentrationCheckpoints[protocolConcentrationHash].upperLookupRecent(uint32(period)));
+    function _getEffectiveProtocolConcentration(
+        bytes32 protocolConcentrationHash,
+        uint256 period
+    ) internal view returns (uint256) {
+        return
+            uint256(
+                _getStorage().protocolConcentrationCheckpoints[protocolConcentrationHash].upperLookupRecent(
+                    uint32(period)
+                )
+            );
     }
 
     function _getProtocolConcentrationHash(uint64 chainId, string memory protocol) internal pure returns (bytes32) {
@@ -783,12 +791,16 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
      *      preserving the original cap for orders already on the book; not implemented today
      *      so that the curator retains immediate control.
      */
-    function setProtocolConcentration(ProtocolConcentrationInput calldata protocolConcentration) external onlyRole(CONFIG_ADMIN_ROLE) {
+    function setProtocolConcentration(
+        ProtocolConcentrationInput calldata protocolConcentration
+    ) external onlyRole(CONFIG_ADMIN_ROLE) {
         _setProtocolConcentration(protocolConcentration);
     }
 
     /// @inheritdoc ICoverOrderAllocator
-    function batchSetProtocolConcentration(ProtocolConcentrationInput[] calldata protocolConcentrations) external onlyRole(CONFIG_ADMIN_ROLE) {
+    function batchSetProtocolConcentration(
+        ProtocolConcentrationInput[] calldata protocolConcentrations
+    ) external onlyRole(CONFIG_ADMIN_ROLE) {
         for (uint256 i; i < protocolConcentrations.length; ++i) {
             _setProtocolConcentration(protocolConcentrations[i]);
         }
@@ -800,6 +812,10 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
 
     /// @inheritdoc ICoverOrderAllocator
     function addSupportedPremiumToken(address token) external onlyRole(CONFIG_ADMIN_ROLE) {
+        _addSupportedPremiumToken(token);
+    }
+
+    function _addSupportedPremiumToken(address token) internal {
         _requireNonZero(token);
         CoverOrderAllocatorStorage storage $ = _getStorage();
         if (!$.supportedPremiumTokens.add(token)) revert PremiumTokenAlreadySupported();
@@ -918,19 +934,16 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
         return _getStorage().supportedProtocolConcentrationHashes;
     }
 
-    function getProtocolConcentrationHash(uint64 chainId, string calldata protocol) external pure returns (bytes32) {
-        return _getProtocolConcentrationHash(chainId, protocol);
-    }
-
-    function getMarketId(uint64 chainId, string calldata protocol, bytes32 market) external pure returns (bytes32) {
-        return _getMarketId(chainId, protocol, market);
-    }
-
-    function getProtocolConcentrationFromHash(bytes32 protocolConcentrationHash) external view returns (ProtocolConcentration memory) {
+    function getProtocolConcentrationFromHash(
+        bytes32 protocolConcentrationHash
+    ) external view returns (ProtocolConcentration memory) {
         return _getStorage().protocolConcentrations[protocolConcentrationHash];
     }
 
-    function getProtocolConcentrationSettledCover(uint256 period, bytes32 protocolConcentrationHash) external view returns (uint256) {
+    function getProtocolConcentrationSettledCover(
+        uint256 period,
+        bytes32 protocolConcentrationHash
+    ) external view returns (uint256) {
         return _getStorage().protocolConcentrationSettledCover[period][protocolConcentrationHash];
     }
 
@@ -938,7 +951,10 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
         return _getEffectiveProtocolConcentration(protocolConcentrationHash, _getStorage().vault.currentPeriod() + 1);
     }
 
-    function getProtocolConcentrationAt(bytes32 protocolConcentrationHash, uint256 period) external view returns (uint256) {
+    function getProtocolConcentrationAt(
+        bytes32 protocolConcentrationHash,
+        uint256 period
+    ) external view returns (uint256) {
         return _getEffectiveProtocolConcentration(protocolConcentrationHash, period);
     }
 

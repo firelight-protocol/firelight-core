@@ -62,10 +62,10 @@ const buildMerkleTree = (expectedOrders, scenarioOrders, marketIds) => {
       marketIds[orderMarkets[i].marketId],
       BigInt(v)
     ])
-    return [BigInt(o.orderId), tuples, BigInt(o.allocatedPremiumAmount)]
+    return [BigInt(o.orderId), tuples]
   })
 
-  const tree = StandardMerkleTree.of(leaves, ['uint256', '(bytes32,uint256)[]', 'uint256'])
+  const tree = StandardMerkleTree.of(leaves, ['uint256', '(bytes32,uint256)[]'])
   return { tree, root: tree.root }
 }
 
@@ -318,7 +318,6 @@ for (const file of vectorFiles) {
           await allocator.connect(allocatorRole).settleCoverOrder(
             exp.orderId,
             tuples,
-            BigInt(exp.allocatedPremiumAmount),
             proof
           )
         }

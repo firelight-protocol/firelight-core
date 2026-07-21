@@ -41,7 +41,7 @@ const deployERC20 = async (name, symbol, decimals) => {
 }
 
 const buildTree = (entries) =>
-  StandardMerkleTree.of(entries, ['uint256', '(bytes32,uint256)[]', 'uint256'])
+  StandardMerkleTree.of(entries.map(e => e.slice(0, 2)), ['uint256', '(bytes32,uint256)[]'])
 
 const proofFor = (tree, orderId) => {
   for (const [i, leaf] of tree.entries()) {
@@ -191,7 +191,6 @@ describe('CoverOrderAllocator / premium token decimals normalization', function 
       await allocator.connect(allocatorRole).settleCoverOrder(
         0,
         [mcaStruct(marketIdA, cover18)],
-        premium18,
         proofFor(tree, 0)
       )
 
@@ -298,7 +297,7 @@ describe('CoverOrderAllocator / premium token decimals normalization', function 
       const collectorBefore = await usdc.balanceOf(premiumCollector.address)
       const buyerBefore = await usdc.balanceOf(buyer1.address)
       await allocator.connect(allocatorRole).settleCoverOrder(
-        0, [mcaStruct(marketIdA, cover18)], premium18, proofFor(tree, 0)
+        0, [mcaStruct(marketIdA, cover18)], proofFor(tree, 0)
       )
 
       const collectorDelta = (await usdc.balanceOf(premiumCollector.address)) - collectorBefore
@@ -379,9 +378,9 @@ describe('CoverOrderAllocator / premium token decimals normalization', function 
       await allocator.connect(allocatorRole).commitAllocation(await vault.currentPeriod(),tree.root, total18)
 
       await allocator.connect(allocatorRole).batchSettleCoverOrder([
-        { orderId: 0, marketCoverAllocations: [mcaStruct(marketIdA, cover18A)], allocatedPremium: p18A, proof: proofFor(tree, 0) },
-        { orderId: 1, marketCoverAllocations: [mcaStruct(marketIdA, cover18B)], allocatedPremium: p18B, proof: proofFor(tree, 1) },
-        { orderId: 2, marketCoverAllocations: [mcaStruct(marketIdA, cover18C)], allocatedPremium: p18C, proof: proofFor(tree, 2) },
+        { orderId: 0, marketCoverAllocations: [mcaStruct(marketIdA, cover18A)], proof: proofFor(tree, 0) },
+        { orderId: 1, marketCoverAllocations: [mcaStruct(marketIdA, cover18B)], proof: proofFor(tree, 1) },
+        { orderId: 2, marketCoverAllocations: [mcaStruct(marketIdA, cover18C)], proof: proofFor(tree, 2) },
       ])
 
       // Each premium-token collector balance is exactly the native ceil per order.
@@ -442,8 +441,8 @@ describe('CoverOrderAllocator / premium token decimals normalization', function 
       ])
       await allocator.connect(allocatorRole).commitAllocation(await vault.currentPeriod(),tree.root, cover18 * 2n)
       await allocator.connect(allocatorRole).batchSettleCoverOrder([
-        { orderId: 0, marketCoverAllocations: [mcaStruct(marketIdA, cover18)], allocatedPremium: p18, proof: proofFor(tree, 0) },
-        { orderId: 1, marketCoverAllocations: [mcaStruct(marketIdA, cover18)], allocatedPremium: p18, proof: proofFor(tree, 1) },
+        { orderId: 0, marketCoverAllocations: [mcaStruct(marketIdA, cover18)], proof: proofFor(tree, 0) },
+        { orderId: 1, marketCoverAllocations: [mcaStruct(marketIdA, cover18)], proof: proofFor(tree, 1) },
       ])
 
       // Each token isolated by buyer; balances exactly match the per-token native ceil.
