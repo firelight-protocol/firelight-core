@@ -10,7 +10,7 @@ const DEFAULT_CONFIG = {
 }
 
 const deployVault = async (config = {}) => {
-  config = Object.assign(DEFAULT_CONFIG, config)
+  config = Object.assign({}, DEFAULT_CONFIG, config)
   const abi_coder = ethers.AbiCoder.defaultAbiCoder()
   let token_contract, firelight_vault
 

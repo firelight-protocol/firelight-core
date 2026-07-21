@@ -667,6 +667,9 @@ contract FirelightVault is
             true,
             Math.Rounding.Floor
         );
+        // A dust deposit can floor to zero shares once the share price exceeds 1;
+        // reject it instead of pulling assets in exchange for nothing.
+        if (shares == 0) revert InvalidAmount();
 
         _depositFunds(_msgSender(), receiver, assets, shares, _totalSupply, _totalAssets);
 
