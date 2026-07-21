@@ -218,9 +218,7 @@ contract FirelightVault is
             revert InvalidAssetAddress();
         }
 
-        if (initParams.depositLimit == 0) {
-            revert InvalidDepositLimit();
-        }
+        _updateDepositLimit(initParams.depositLimit);
 
         if (initParams.periodConfigurationDuration == 0) {
             revert InvalidPeriodConfigurationDuration();
@@ -230,7 +228,6 @@ contract FirelightVault is
             revert InvalidAdminAddress();
         }
 
-        depositLimit = initParams.depositLimit;
         _addPeriodConfiguration(Time.timestamp(), initParams.periodConfigurationDuration);
         contractVersion = 2;
 
@@ -530,11 +527,7 @@ contract FirelightVault is
      * @param newLimit The new deposit limit.
      */
     function updateDepositLimit(uint256 newLimit) external onlyRole(DEPOSIT_LIMIT_UPDATE_ROLE) {
-        if (newLimit == 0) {
-            revert InvalidDepositLimit();
-        }
-        depositLimit = newLimit;
-        emit DepositLimitUpdated(newLimit);
+        _updateDepositLimit(newLimit);
     }
 
     /**
@@ -967,6 +960,14 @@ contract FirelightVault is
         }
 
         emit PayoutExecuted(to, amount, paidAmount, captureTimestamp);
+    }
+
+    function _updateDepositLimit(uint256 newLimit) internal {
+        if (newLimit == 0) {
+            revert InvalidDepositLimit();
+        }
+        depositLimit = newLimit;
+        emit DepositLimitUpdated(newLimit);
     }
 
     function _depositFunds(
