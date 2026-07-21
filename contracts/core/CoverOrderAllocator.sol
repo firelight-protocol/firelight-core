@@ -326,12 +326,14 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
      * @inheritdoc ICoverOrderAllocator
      * @dev The vault asset price in USD is fetched from the registered `priceFeedAdapter`
      *      oracle, validated against `maxPriceAge` inside `PriceFeed.getPrice`. Capacity is
-     *      recomputed live and widened by the period's `divergenceToleranceBps`.
+     *      recomputed live and widened by the period's `divergenceToleranceBps` to bound
+     *      the caller's `matchingCapacity`.
      */
     function commitAllocation(
         uint256 commitmentPeriod,
         bytes32 merkleRoot,
-        uint256 totalAllocated
+        uint256 totalAllocated,
+        uint256 matchingCapacity
     ) external onlyRole(ALLOCATOR_ROLE) {
         if (merkleRoot == bytes32(0)) revert InvalidMerkleRoot();
 
@@ -343,24 +345,23 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
         uint48 graceExpiresAt = uint48(block.timestamp) + $.settlementGracePeriod;
         if (graceExpiresAt >= $.vault.currentPeriodEnd()) revert CommitTooCloseToPeriodEnd();
 
-        uint256 totalAvailableCapacity = _computeAvailableCapacity($, currentPeriod);
-        if (totalAllocated > totalAvailableCapacity)
-            revert TotalAllocationOverflow(totalAllocated, totalAvailableCapacity);
+        _validateMatchingCapacity($, currentPeriod, matchingCapacity, totalAllocated);
 
         AllocationCommitment storage commit = $.allocationCommitments[currentPeriod];
         commit.root = merkleRoot;
-        commit.totalAvailableCapacity = totalAvailableCapacity;
+        commit.totalAvailableCapacity = matchingCapacity;
         commit.totalDeclaredAllocated = totalAllocated;
         commit.graceExpiresAt = graceExpiresAt;
 
-        emit AllocationCommitted(currentPeriod, merkleRoot, totalAvailableCapacity, totalAllocated);
+        emit AllocationCommitted(currentPeriod, merkleRoot, matchingCapacity, totalAllocated);
     }
 
     /// @inheritdoc ICoverOrderAllocator
     function recommitAllocation(
         uint256 period,
         bytes32 newMerkleRoot,
-        uint256 newTotalAllocated
+        uint256 newTotalAllocated,
+        uint256 newMatchingCapacity
     ) external onlyRole(CONFIG_ADMIN_ROLE) {
         if (newMerkleRoot == bytes32(0)) revert InvalidMerkleRoot();
 
@@ -371,17 +372,34 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
         uint48 graceExpiresAt = uint48(block.timestamp) + $.settlementGracePeriod;
         if (graceExpiresAt >= $.vault.currentPeriodEnd()) revert CommitTooCloseToPeriodEnd();
 
-        // Recompute capacity fresh (symmetric with commitAllocation) so recommit can capture
-        // recovered price/FLB and stays bound to the period's real collateral within tolerance.
-        uint256 freshCapacity = _computeAvailableCapacity($, period);
-        if (newTotalAllocated > freshCapacity) revert TotalAllocationOverflow(newTotalAllocated, freshCapacity);
+        // Validate against fresh capacity (symmetric with commitAllocation) so recommit can
+        // capture recovered price/FLB and stays bound to the period's real collateral within
+        // tolerance.
+        _validateMatchingCapacity($, period, newMatchingCapacity, newTotalAllocated);
 
         commit.root = newMerkleRoot;
-        commit.totalAvailableCapacity = freshCapacity;
+        commit.totalAvailableCapacity = newMatchingCapacity;
         commit.totalDeclaredAllocated = newTotalAllocated;
         commit.graceExpiresAt = graceExpiresAt;
 
-        emit AllocationCommitted(period, newMerkleRoot, freshCapacity, newTotalAllocated);
+        emit AllocationCommitted(period, newMerkleRoot, newMatchingCapacity, newTotalAllocated);
+    }
+
+    /**
+     * @dev A commitment stores the capacity THE MATCHER RAN AGAINST (`matchingCapacity`),
+     *      not a capacity recomputed at transaction time: settlement re-derives the merkle
+     *      tree off-chain from the commitment, so the stored value must be the exact input
+     *      that produced the committed root.
+     */
+    function _validateMatchingCapacity(
+        CoverOrderAllocatorStorage storage $,
+        uint256 period,
+        uint256 matchingCapacity,
+        uint256 totalAllocated
+    ) private view {
+        uint256 maxCapacity = _computeAvailableCapacity($, period);
+        if (matchingCapacity > maxCapacity) revert MatchingCapacityOverflow(matchingCapacity, maxCapacity);
+        if (totalAllocated > matchingCapacity) revert TotalAllocationOverflow(totalAllocated, matchingCapacity);
     }
 
     /**

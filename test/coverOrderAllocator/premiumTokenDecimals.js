@@ -187,7 +187,7 @@ describe('CoverOrderAllocator / premium token decimals normalization', function 
       await ctx.advanceToPeriod(2)
 
       const tree = buildTree([[0n, [mca(marketIdA, cover18)], premium18]])
-      await allocator.connect(allocatorRole).commitAllocation(await vault.currentPeriod(),tree.root, cover18)
+      await allocator.connect(allocatorRole).commitAllocation(await vault.currentPeriod(),tree.root, cover18, ethers.parseUnits('2000000', 18))
       await allocator.connect(allocatorRole).settleCoverOrder(
         0,
         [mcaStruct(marketIdA, cover18)],
@@ -292,7 +292,7 @@ describe('CoverOrderAllocator / premium token decimals normalization', function 
       //    pre-remove expected amount — NOT 1 wei (which would mean decimals=0).
       await ctx.advanceToPeriod(2)
       const tree = buildTree([[0n, [mca(marketIdA, cover18)], premium18]])
-      await allocator.connect(allocatorRole).commitAllocation(await vault.currentPeriod(), tree.root, cover18)
+      await allocator.connect(allocatorRole).commitAllocation(await vault.currentPeriod(), tree.root, cover18, ethers.parseUnits('2000000', 18))
 
       const collectorBefore = await usdc.balanceOf(premiumCollector.address)
       const buyerBefore = await usdc.balanceOf(buyer1.address)
@@ -375,7 +375,7 @@ describe('CoverOrderAllocator / premium token decimals normalization', function 
         [1n, [mca(marketIdA, cover18B)], p18B],
         [2n, [mca(marketIdA, cover18C)], p18C],
       ])
-      await allocator.connect(allocatorRole).commitAllocation(await vault.currentPeriod(),tree.root, total18)
+      await allocator.connect(allocatorRole).commitAllocation(await vault.currentPeriod(),tree.root, total18, ethers.parseUnits('2000000', 18))
 
       await allocator.connect(allocatorRole).batchSettleCoverOrder([
         { orderId: 0, marketCoverAllocations: [mcaStruct(marketIdA, cover18A)], proof: proofFor(tree, 0) },
@@ -439,7 +439,7 @@ describe('CoverOrderAllocator / premium token decimals normalization', function 
         [0n, [mca(marketIdA, cover18)], p18],
         [1n, [mca(marketIdA, cover18)], p18],
       ])
-      await allocator.connect(allocatorRole).commitAllocation(await vault.currentPeriod(),tree.root, cover18 * 2n)
+      await allocator.connect(allocatorRole).commitAllocation(await vault.currentPeriod(),tree.root, cover18 * 2n, ethers.parseUnits('2000000', 18))
       await allocator.connect(allocatorRole).batchSettleCoverOrder([
         { orderId: 0, marketCoverAllocations: [mcaStruct(marketIdA, cover18)], proof: proofFor(tree, 0) },
         { orderId: 1, marketCoverAllocations: [mcaStruct(marketIdA, cover18)], proof: proofFor(tree, 1) },

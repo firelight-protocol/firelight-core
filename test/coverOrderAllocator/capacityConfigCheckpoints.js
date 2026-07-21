@@ -205,12 +205,12 @@ describe('CoverOrderAllocator / capacityConfig checkpoints', function () {
       // Capacity (A, leverage 2): 1000 * 2 = 2000 in 18d. 1500 in 18d ≤ 2000 ✓
       const totalAllocated = ethers.parseUnits('1500', 18)
       await expect(
-        allocator.connect(allocatorRole).commitAllocation(await vault.currentPeriod(),ethers.id('root'), totalAllocated)
+        allocator.connect(allocatorRole).commitAllocation(await vault.currentPeriod(),ethers.id('root'), totalAllocated, totalAllocated)
       ).to.not.be.reverted
     })
 
     it('uses the latest past config when matching long after the last update', async () => {
-      // Checkpoints: (2, A: leverage 20000), (4, B: leverage 10000).
+      // Checkpoints: (2, A: leverage 24000 = 2.0x), (4, B: leverage 12000 = 1.0x).
       // Match at period 9 with totalAllocated = 1500 USDC, FLB = 1000 USDC:
       //   upperLookup(9) → B → capacity 1000 → 1500 > 1000 → revert ✓
       //   lowerLookup(9) → no key ≥ 9 → A → capacity 2000 → 1500 ≤ 2000 → no revert ✗
@@ -223,7 +223,7 @@ describe('CoverOrderAllocator / capacityConfig checkpoints', function () {
       await ensurePeriod(vault, 4)
       await vault.setCurrentPeriod(3)
       await allocator.connect(configAdmin).setCapacityConfig(
-        cfgWith(firstLossBufferWallet.address, ctx.usdc.target, { effectiveLeverage: 10000n })
+        cfgWith(firstLossBufferWallet.address, ctx.usdc.target, { effectiveLeverage: 12000n })
       )
 
       await ensurePeriod(vault, 9)
@@ -233,7 +233,7 @@ describe('CoverOrderAllocator / capacityConfig checkpoints', function () {
       // Capacity (B): 1000 * 1 = 1000 in 18d. 1500 in 18d > 1000 → revert.
       const totalAllocated = ethers.parseUnits('1500', 18)
       await expect(
-        allocator.connect(allocatorRole).commitAllocation(await vault.currentPeriod(),ethers.id('root'), totalAllocated)
+        allocator.connect(allocatorRole).commitAllocation(await vault.currentPeriod(),ethers.id('root'), totalAllocated, ethers.parseUnits('1000', 18))
       ).to.be.revertedWithCustomError(allocator, 'TotalAllocationOverflow')
     })
   })

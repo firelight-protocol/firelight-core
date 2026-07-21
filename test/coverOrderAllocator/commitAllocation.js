@@ -60,15 +60,15 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
     it('reverts if called by non-curator', async () => {
       const ctx = await loadFixture(deployCoverOrderAllocator)
       await readyToMatch(ctx)
-      await expect(ctx.allocator.connect(ctx.buyer1).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root'), 0))
+      await expect(ctx.allocator.connect(ctx.buyer1).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root'), 0, 0))
         .to.be.revertedWithCustomError(ctx.allocator, 'AccessControlUnauthorizedAccount')
     })
 
     it('reverts on double commit within the same period', async () => {
       const ctx = await loadFixture(deployCoverOrderAllocator)
       await readyToMatch(ctx)
-      await ctx.allocator.connect(ctx.allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root'), 0)
-      await expect(ctx.allocator.connect(ctx.allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root2'), 0))
+      await ctx.allocator.connect(ctx.allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root'), 0, 0)
+      await expect(ctx.allocator.connect(ctx.allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root2'), 0, 0))
         .to.be.revertedWithCustomError(ctx.allocator, 'PeriodAlreadyCommitted')
     })
 
@@ -76,7 +76,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       const ctx = await loadFixture(deployCoverOrderAllocator)
       await readyToMatch(ctx)
       const current = await ctx.vault.currentPeriod()
-      await expect(ctx.allocator.connect(ctx.allocatorRole).commitAllocation(current + 1n, ethers.id('root'), 0))
+      await expect(ctx.allocator.connect(ctx.allocatorRole).commitAllocation(current + 1n, ethers.id('root'), 0, 0))
         .to.be.revertedWithCustomError(ctx.allocator, 'InvalidCommitmentPeriod')
         .withArgs(current + 1n, current)
     })
@@ -85,7 +85,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       const ctx = await loadFixture(deployCoverOrderAllocator)
       await readyToMatch(ctx)
       const current = await ctx.vault.currentPeriod()
-      await expect(ctx.allocator.connect(ctx.allocatorRole).commitAllocation(current - 1n, ethers.id('root'), 0))
+      await expect(ctx.allocator.connect(ctx.allocatorRole).commitAllocation(current - 1n, ethers.id('root'), 0, 0))
         .to.be.revertedWithCustomError(ctx.allocator, 'InvalidCommitmentPeriod')
         .withArgs(current - 1n, current)
     })
@@ -93,7 +93,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
     it('reverts on zero merkle root', async () => {
       const ctx = await loadFixture(deployCoverOrderAllocator)
       await readyToMatch(ctx)
-      await expect(ctx.allocator.connect(ctx.allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.ZeroHash, 0))
+      await expect(ctx.allocator.connect(ctx.allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.ZeroHash, 0, 0))
         .to.be.revertedWithCustomError(ctx.allocator, 'InvalidMerkleRoot')
     })
 
@@ -104,7 +104,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       // PriceFeed.getPrice rejects answer <= 0 with `InvalidAssetPrice(int256)`.
       await ctx.priceFeed.setAnswer(0n)
       // PriceFeed library lives outside the allocator; revert is a generic Solidity error string.
-      await expect(ctx.allocator.connect(ctx.allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root'), 0))
+      await expect(ctx.allocator.connect(ctx.allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root'), 0, 0))
         .to.be.reverted
     })
 
@@ -113,7 +113,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await readyToMatch(ctx)
       // Push updatedAt very far in the past so block.timestamp - updatedAt > maxAge (3600s).
       await ctx.priceFeed.setUpdatedAt(1n)
-      await expect(ctx.allocator.connect(ctx.allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root'), 0))
+      await expect(ctx.allocator.connect(ctx.allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root'), 0, 0))
         .to.be.reverted
     })
 
@@ -125,8 +125,26 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await readyToMatch(ctx)
       // capacity (18d) = 1000 * 2 = 2000. tooMuch = 3000 > 2000 → reverts.
       const tooMuch = ethers.parseUnits('3000', 18)
-      await expect(allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root'), tooMuch))
+      await expect(allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root'), tooMuch, ethers.parseUnits('2000', 18)))
         .to.be.revertedWithCustomError(allocator, 'TotalAllocationOverflow')
+    })
+
+    it('reverts with MatchingCapacityOverflow when matchingCapacity exceeds the live capacity; exact capacity is accepted', async () => {
+      const ctx = await loadFixture(deployCoverOrderAllocator)
+      const { allocator, usdc, firstLossBufferWallet, vault, allocatorRole } = ctx
+      await usdc.mint(firstLossBufferWallet.address, ethers.parseUnits('1000', 6))
+      await vault.setTotalAssets(0)
+      await readyToMatch(ctx)
+
+      // Live capacity (18d) = 1000 * 2 = 2000; the matcher may not claim to have run against more.
+      const capacity = ethers.parseUnits('2000', 18)
+      const period = await ctx.vault.currentPeriod()
+      await expect(allocator.connect(allocatorRole).commitAllocation(period, ethers.id('root'), 0, capacity + 1n))
+        .to.be.revertedWithCustomError(allocator, 'MatchingCapacityOverflow')
+        .withArgs(capacity + 1n, capacity)
+
+      await allocator.connect(allocatorRole).commitAllocation(period, ethers.id('root'), 0, capacity)
+      expect((await allocator.getAllocationCommitment(period)).totalAvailableCapacity).to.equal(capacity)
     })
 
     // Regression test for the per-protocolConcentration-ceiling model: per-protocolConcentration bps act
@@ -164,11 +182,11 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       const period = await vault.currentPeriod()
       // 2001 > capacity (2000): TotalAllocationOverflow.
-      await expect(allocator.connect(allocatorRole).commitAllocation(period, ethers.id('over'), ethers.parseUnits('2001', 18)))
+      await expect(allocator.connect(allocatorRole).commitAllocation(period, ethers.id('over'), ethers.parseUnits('2001', 18), ethers.parseUnits('2000', 18)))
         .to.be.revertedWithCustomError(allocator, 'TotalAllocationOverflow')
 
       // 2000 = capacity: passes (boundary).
-      await allocator.connect(allocatorRole).commitAllocation(period, ethers.id('boundary'), ethers.parseUnits('2000', 18))
+      await allocator.connect(allocatorRole).commitAllocation(period, ethers.id('boundary'), ethers.parseUnits('2000', 18), ethers.parseUnits('2000', 18))
       const commit = await allocator.getAllocationCommitment(period)
       expect(commit.totalAvailableCapacity).to.equal(ethers.parseUnits('2000', 18))
       expect(commit.totalDeclaredAllocated).to.equal(ethers.parseUnits('2000', 18))
@@ -188,7 +206,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await readyToMatch(ctx)
 
       // 6k allocation (18d) should pass exactly (boundary)
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root'), ethers.parseUnits('6000', 18))
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root'), ethers.parseUnits('6000', 18), ethers.parseUnits('6000', 18))
       const period = await vault.currentPeriod()
       const commit = await allocator.getAllocationCommitment(period)
       expect(commit.totalAvailableCapacity).to.equal(ethers.parseUnits('6000', 18))
@@ -203,7 +221,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await priceFeed.setAnswer(2n * ONE_E18)
       await readyToMatch(ctx)
 
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root'), ethers.parseUnits('10000', 18))
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root'), ethers.parseUnits('10000', 18), ethers.parseUnits('10000', 18))
       const period = await vault.currentPeriod()
       const commit = await allocator.getAllocationCommitment(period)
       expect(commit.totalAvailableCapacity).to.equal(ethers.parseUnits('10000', 18))
@@ -221,7 +239,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await readyToMatch(ctx)
 
       // 6k passes (boundary on the snapshot-derived capacity)
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root'), ethers.parseUnits('6000', 18))
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root'), ethers.parseUnits('6000', 18), ethers.parseUnits('6000', 18))
       const period = await vault.currentPeriod()
       const commit = await allocator.getAllocationCommitment(period)
       expect(commit.totalAvailableCapacity).to.equal(ethers.parseUnits('6000', 18))
@@ -237,7 +255,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       // 10k would fit under (1k+5k)*2=12k but exceeds snapshot capacity (1k+2k)*2=6k.
       const overSnapshot = ethers.parseUnits('10000', 18)
-      await expect(allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root'), overSnapshot))
+      await expect(allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root'), overSnapshot, ethers.parseUnits('6000', 18)))
         .to.be.revertedWithCustomError(allocator, 'TotalAllocationOverflow')
     })
 
@@ -276,7 +294,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await readyToMatch(ctx)
 
       const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, cover)], premium]])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover, ethers.parseUnits('10000', 18))
       await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0))
 
       const o = await allocator.getCoverOrder(0)
@@ -307,7 +325,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       await readyToMatch(ctx)
       const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, cover)], premium]])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover, ethers.parseUnits('10000', 18))
       await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0))
 
       expect(await coverNFT.ownerOf(0)).to.equal(buyer1.address)
@@ -337,7 +355,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       const allocCover = ethers.parseUnits('5000', 18)
       const allocPremium = prorate(allocCover, 500, PERIOD_DURATION)
       const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, allocCover)], allocPremium]])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, allocCover)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, allocCover, ethers.parseUnits('10000', 18))
       await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, allocCover)], getProof(tree, 0))
 
       const o = await allocator.getCoverOrder(0)
@@ -359,7 +377,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await readyToMatch(ctx)
 
       const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, cover)], premium]])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover, cover)
 
       // Wrong cover amount → proof won't verify
       await expect(allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover - 1n)], getProof(tree, 0)))
@@ -380,7 +398,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await readyToMatch(ctx)
 
       const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, cover)], premium]])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover, ethers.parseUnits('20000', 18))
       await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0))
 
       await expect(allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0)))
@@ -418,7 +436,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
         [0n, [mca(ctx.marketIdA, cover)], premium],
         [1n, [mca(ctx.marketIdA, cover)], premium]
       ])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover) // only 1000 declared
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover, ethers.parseUnits('20000', 18)) // only 1000 declared
 
       await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0))
       // Second settle would push totalSettledCover to 2000 > 1000 declared
@@ -445,7 +463,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
         [0n, [mca(ctx.marketIdA, cover)], premium],
         [1n, [mca(ctx.marketIdA, cover)], premium]
       ])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover * 2n)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover * 2n, ethers.parseUnits('20000', 18))
 
       await allocator.connect(allocatorRole).batchSettleCoverOrder([
         { orderId: 0, marketCoverAllocations: [mcaStruct(ctx.marketIdA, cover)], proof: getProof(tree, 0) },
@@ -464,7 +482,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await readyToMatch(ctx)
 
       const { tree, root } = buildTree([[999n, [mca(ctx.marketIdA, 100n)], 1n]])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, 100n)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, 100n, 100n)
       await expect(allocator.connect(allocatorRole).settleCoverOrder(999, [mcaStruct(ctx.marketIdA, 100n)], getProof(tree, 999)))
         .to.be.revertedWithCustomError(allocator, 'InvalidOrder')
     })
@@ -484,7 +502,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       // Tree leaf with 2 market allocations for a 1-market order — proof will verify but length check fails first
       const allocs2 = [mca(ctx.marketIdA, cover / 2n), mca(ctx.marketIdB, cover / 2n)]
       const { tree, root } = buildTree([[0n, allocs2, premium]])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover, cover)
       await expect(allocator.connect(allocatorRole).settleCoverOrder(0,
         [mcaStruct(ctx.marketIdA, cover / 2n), mcaStruct(ctx.marketIdB, cover / 2n)],
         getProof(tree, 0)
@@ -506,7 +524,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       // Tree leaf uses marketB instead of marketA
       const { tree, root } = buildTree([[0n, [mca(marketIdB, cover)], premium]])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover, cover)
       await expect(allocator.connect(allocatorRole).settleCoverOrder(0,
         [mcaStruct(marketIdB, cover)], getProof(tree, 0)
       )).to.be.revertedWithCustomError(allocator, 'MarketIdMismatch')
@@ -526,7 +544,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       const overCover = cover + 1n
       const { tree, root } = buildTree([[0n, [mca(marketIdA, overCover)], premium]])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, overCover)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, overCover, overCover)
       await expect(allocator.connect(allocatorRole).settleCoverOrder(0,
         [mcaStruct(marketIdA, overCover)], getProof(tree, 0)
       )).to.be.revertedWithCustomError(allocator, 'MarketAllocationOverflow')
@@ -545,7 +563,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await readyToMatch(ctx)
 
       const { tree, root } = buildTree([[0n, [mca(marketIdA, 0n)], premium]])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover, cover)
       await expect(allocator.connect(allocatorRole).settleCoverOrder(0,
         [mcaStruct(marketIdA, 0n)], getProof(tree, 0)
       )).to.be.revertedWithCustomError(allocator, 'ZeroAllocation')
@@ -567,7 +585,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       // The premium is not in the leaf: the contract derives it from the order's stored
       // rate and period duration, so a partial fill always pays exactly pro-rata.
       const { tree, root } = buildTree([[0n, [mca(marketIdA, halfCover)]]])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(), root, cover)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(), root, cover, ethers.parseUnits('20000', 18))
       await expect(allocator.connect(allocatorRole).settleCoverOrder(0,
         [mcaStruct(marketIdA, halfCover)], getProof(tree, 0)
       )).to.emit(allocator, 'CoverOrderSettled').withArgs(0, Status.PARTIAL, halfCover, halfPremium)
@@ -588,7 +606,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await readyToMatch(ctx)
 
       const { tree, root } = buildTree([[0n, [mca(marketIdA, cover)], premium]])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover, ethers.parseUnits('20000', 18))
       await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover)], getProof(tree, 0))
 
       expect(await allocator.getProtocolConcentrationSettledCover(2, concHashMorpho)).to.equal(cover)
@@ -610,7 +628,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, cover)], premium]])
       // Commit succeeds (no transfer happens)
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover, ethers.parseUnits('20000', 18))
       // Settle reverts because buyer hasn't approved
       await expect(allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0)))
         .to.be.reverted
@@ -640,7 +658,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
         [0n, [mca(marketIdA, cover1)], p1],
         [1n, [mca(marketIdA, cover2)], p2]
       ])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover1 + cover2)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover1 + cover2, ethers.parseUnits('20000', 18))
 
       await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover1)], getProof(tree, 0))
       // Second settle pushes Morpho protocolConcentration to 15000 > 12000 cap
@@ -670,7 +688,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
         [0n, [mca(marketIdA, coverA)], pA],
         [1n, [mca(marketIdB, coverB)], pB]
       ])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, coverA + coverB)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, coverA + coverB, ethers.parseUnits('20000', 18))
 
       await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, coverA)], getProof(tree, 0))
       await allocator.connect(allocatorRole).settleCoverOrder(1, [mcaStruct(marketIdB, coverB)], getProof(tree, 1))
@@ -688,9 +706,9 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await vault.setTotalAssets(0)
       await readyToMatch(ctx)
 
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root1'), 0)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root1'), 0, 0)
       const newRoot = ethers.id('root2')
-      await allocator.connect(configAdmin).recommitAllocation(2, newRoot, 0)
+      await allocator.connect(configAdmin).recommitAllocation(2, newRoot, 0, 0)
 
       const commit = await allocator.getAllocationCommitment(2)
       expect(commit.root).to.equal(newRoot)
@@ -703,8 +721,8 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await vault.setTotalAssets(0)
       await readyToMatch(ctx)
 
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root1'), 0)
-      await expect(allocator.connect(configAdmin).recommitAllocation(1, ethers.ZeroHash, 0))
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root1'), 0, 0)
+      await expect(allocator.connect(configAdmin).recommitAllocation(1, ethers.ZeroHash, 0, 0))
         .to.be.revertedWithCustomError(allocator, 'InvalidMerkleRoot')
     })
 
@@ -712,7 +730,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       const ctx = await loadFixture(deployCoverOrderAllocator)
       const { allocator, configAdmin, vault } = ctx
       const currentPeriod = await vault.currentPeriod()
-      await expect(allocator.connect(configAdmin).recommitAllocation(currentPeriod, ethers.id('root'), 0))
+      await expect(allocator.connect(configAdmin).recommitAllocation(currentPeriod, ethers.id('root'), 0, 0))
         .to.be.revertedWithCustomError(allocator, 'NoCommitForPeriod')
     })
 
@@ -724,8 +742,8 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await readyToMatch(ctx)
 
       const currentPeriod = await ctx.vault.currentPeriod()
-      await allocator.connect(allocatorRole).commitAllocation(currentPeriod, ethers.id('root1'), 0)
-      await expect(allocator.connect(configAdmin).recommitAllocation(currentPeriod + 1n, ethers.id('root2'), 0))
+      await allocator.connect(allocatorRole).commitAllocation(currentPeriod, ethers.id('root1'), 0, 0)
+      await expect(allocator.connect(configAdmin).recommitAllocation(currentPeriod + 1n, ethers.id('root2'), 0, 0))
         .to.be.revertedWithCustomError(allocator, 'InvalidCommitmentPeriod')
     })
 
@@ -737,8 +755,8 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await readyToMatch(ctx)
 
       // capacity = 1000 * 2 = 2000
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root1'), 0)
-      await expect(allocator.connect(configAdmin).recommitAllocation(2, ethers.id('root2'), ethers.parseUnits('3000', 18)))
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root1'), 0, 0)
+      await expect(allocator.connect(configAdmin).recommitAllocation(2, ethers.id('root2'), ethers.parseUnits('3000', 18), ethers.parseUnits('2000', 18)))
         .to.be.revertedWithCustomError(allocator, 'TotalAllocationOverflow')
     })
 
@@ -749,8 +767,8 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await vault.setTotalAssets(0)
       await readyToMatch(ctx)
 
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root1'), 0)
-      await expect(allocator.connect(curator).recommitAllocation(2, ethers.id('root2'), 0))
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),ethers.id('root1'), 0, 0)
+      await expect(allocator.connect(curator).recommitAllocation(2, ethers.id('root2'), 0, 0))
         .to.be.revertedWithCustomError(allocator, 'AccessControlUnauthorizedAccount')
     })
 
@@ -768,10 +786,10 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await readyToMatch(ctx)
 
       const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, cover)], premium]])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover, ethers.parseUnits('20000', 18))
       await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0))
 
-      await expect(allocator.connect(configAdmin).recommitAllocation(2, ethers.id('new'), cover))
+      await expect(allocator.connect(configAdmin).recommitAllocation(2, ethers.id('new'), cover, cover))
         .to.be.revertedWithCustomError(allocator, 'SettlementsAlreadyStarted')
     })
   })
@@ -785,7 +803,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await readyToMatch(ctx)
 
       const badRoot = ethers.id('bad-root')
-      await allocator.connect(allocatorRole).commitAllocation(2, badRoot, 0)
+      await allocator.connect(allocatorRole).commitAllocation(2, badRoot, 0, 0)
 
       await expect(allocator.connect(configAdmin).cancelCommitAllocation(2))
         .to.emit(allocator, 'AllocationCommitmentCancelled').withArgs(2, badRoot)
@@ -796,7 +814,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       // PeriodAlreadyCommitted no longer applies: a corrected commit can land
       const goodRoot = ethers.id('good-root')
-      await allocator.connect(allocatorRole).commitAllocation(2, goodRoot, 0)
+      await allocator.connect(allocatorRole).commitAllocation(2, goodRoot, 0, 0)
       expect((await allocator.getAllocationCommitment(2)).root).to.equal(goodRoot)
     })
 
@@ -814,7 +832,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await readyToMatch(ctx)
 
       const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, cover)], premium]])
-      await allocator.connect(allocatorRole).commitAllocation(2, root, cover)
+      await allocator.connect(allocatorRole).commitAllocation(2, root, cover, cover)
       await allocator.connect(configAdmin).cancelCommitAllocation(2)
 
       await expect(allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0)))
@@ -828,11 +846,11 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await vault.setTotalAssets(0)
       await readyToMatch(ctx)
 
-      await allocator.connect(allocatorRole).commitAllocation(2, ethers.id('bad-root'), 0)
+      await allocator.connect(allocatorRole).commitAllocation(2, ethers.id('bad-root'), 0, 0)
 
       // Oracle goes stale: recommit (which recomputes capacity) is unavailable...
       await priceFeed.setUpdatedAt(1n)
-      await expect(allocator.connect(configAdmin).recommitAllocation(2, ethers.id('new-root'), 0))
+      await expect(allocator.connect(configAdmin).recommitAllocation(2, ethers.id('new-root'), 0, 0))
         .to.be.reverted
 
       // ...but the emergency cancel still withdraws the bad root
@@ -854,7 +872,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await vault.setTotalAssets(0)
       await readyToMatch(ctx)
 
-      await allocator.connect(allocatorRole).commitAllocation(2, ethers.id('root1'), 0)
+      await allocator.connect(allocatorRole).commitAllocation(2, ethers.id('root1'), 0, 0)
       await expect(allocator.connect(configAdmin).cancelCommitAllocation(3))
         .to.be.revertedWithCustomError(allocator, 'InvalidCommitmentPeriod')
     })
@@ -866,7 +884,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await vault.setTotalAssets(0)
       await readyToMatch(ctx)
 
-      await allocator.connect(allocatorRole).commitAllocation(2, ethers.id('root1'), 0)
+      await allocator.connect(allocatorRole).commitAllocation(2, ethers.id('root1'), 0, 0)
       await expect(allocator.connect(curator).cancelCommitAllocation(2))
         .to.be.revertedWithCustomError(allocator, 'AccessControlUnauthorizedAccount')
     })
@@ -885,7 +903,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await readyToMatch(ctx)
 
       const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, cover)], premium]])
-      await allocator.connect(allocatorRole).commitAllocation(2, root, cover)
+      await allocator.connect(allocatorRole).commitAllocation(2, root, cover, ethers.parseUnits('20000', 18))
       await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0))
 
       await expect(allocator.connect(configAdmin).cancelCommitAllocation(2))
@@ -919,7 +937,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       // strict capacity = 1000 × 2 = 2000; effective capacity = 2000 × 1.05 = 2100
       const ceiling = ethers.parseUnits('2100', 18)
 
-      await allocator.connect(allocatorRole).commitAllocation(period, ethers.id('atBand'), ceiling)
+      await allocator.connect(allocatorRole).commitAllocation(period, ethers.id('atBand'), ceiling, ceiling)
 
       const commit = await allocator.getAllocationCommitment(period)
       expect(commit.totalDeclaredAllocated).to.equal(ceiling)
@@ -939,7 +957,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       const period = await vault.currentPeriod()
       const ceiling = ethers.parseUnits('2100', 18)
       // The reverted capacity arg is the tolerated ceiling (2100), proving the band — not the strict 2000.
-      await expect(allocator.connect(allocatorRole).commitAllocation(period, ethers.id('over'), ceiling + 1n))
+      await expect(allocator.connect(allocatorRole).commitAllocation(period, ethers.id('over'), ceiling + 1n, ceiling))
         .to.be.revertedWithCustomError(allocator, 'TotalAllocationOverflow')
         .withArgs(ceiling + 1n, ceiling)
     })
@@ -953,7 +971,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await readyToMatch(ctx)
 
       const period = await vault.currentPeriod()
-      await expect(allocator.connect(allocatorRole).commitAllocation(period, ethers.id('over'), ethers.parseUnits('2001', 18)))
+      await expect(allocator.connect(allocatorRole).commitAllocation(period, ethers.id('over'), ethers.parseUnits('2001', 18), ethers.parseUnits('2000', 18)))
         .to.be.revertedWithCustomError(allocator, 'TotalAllocationOverflow')
         .withArgs(ethers.parseUnits('2001', 18), ethers.parseUnits('2000', 18))
     })
@@ -967,13 +985,13 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       const period = await vault.currentPeriod()
       // initial capacity = 1000 × 2 = 2000
-      await allocator.connect(allocatorRole).commitAllocation(period, ethers.id('root1'), ethers.parseUnits('2000', 18))
+      await allocator.connect(allocatorRole).commitAllocation(period, ethers.id('root1'), ethers.parseUnits('2000', 18), ethers.parseUnits('2000', 18))
 
       // Top up the first-loss buffer to 2000 USDC → fresh capacity = 4000.
       await usdc.mint(firstLossBufferWallet.address, ethers.parseUnits('1000', 6))
 
       // 4000 would have overflowed the original commit (2000) but is within the recomputed capacity.
-      await allocator.connect(configAdmin).recommitAllocation(period, ethers.id('root2'), ethers.parseUnits('4000', 18))
+      await allocator.connect(configAdmin).recommitAllocation(period, ethers.id('root2'), ethers.parseUnits('4000', 18), ethers.parseUnits('4000', 18))
 
       const commit = await allocator.getAllocationCommitment(period)
       expect(commit.totalAvailableCapacity).to.equal(ethers.parseUnits('4000', 18))
@@ -989,13 +1007,13 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       const period = await vault.currentPeriod()
       // initial capacity = 2000; commit 2000 is fine.
-      await allocator.connect(allocatorRole).commitAllocation(period, ethers.id('root1'), ethers.parseUnits('2000', 18))
+      await allocator.connect(allocatorRole).commitAllocation(period, ethers.id('root1'), ethers.parseUnits('2000', 18), ethers.parseUnits('2000', 18))
 
       // Buffer holder drains 500 USDC → balance 500 → fresh capacity = 1000.
       await usdc.connect(firstLossBufferWallet).transfer(buyer1.address, ethers.parseUnits('500', 6))
 
       // 2000 was OK at commit time but exceeds the recomputed capacity (1000).
-      await expect(allocator.connect(configAdmin).recommitAllocation(period, ethers.id('root2'), ethers.parseUnits('2000', 18)))
+      await expect(allocator.connect(configAdmin).recommitAllocation(period, ethers.id('root2'), ethers.parseUnits('2000', 18), ethers.parseUnits('1000', 18)))
         .to.be.revertedWithCustomError(allocator, 'TotalAllocationOverflow')
         .withArgs(ethers.parseUnits('2000', 18), ethers.parseUnits('1000', 18))
     })
@@ -1027,7 +1045,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       const { tree, root } = buildTree([[0n, [mca(marketIdA, cover)], premium]])
 
       // commit: 2050 ≤ effective 2100 → ok.
-      await allocator.connect(allocatorRole).commitAllocation(period, root, cover)
+      await allocator.connect(allocatorRole).commitAllocation(period, root, cover, ethers.parseUnits('2100', 18))
 
       // settle: per-protocol cap = 100% × effective(2100) = 2100 ≥ 2050 → settles.
       // (Under strict concentration the cap would be 2000 and this would revert ProtocolConcentrationOverflow.)
@@ -1096,7 +1114,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await readyToMatch(ctx)
 
       const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, cover)], premium]])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover, ethers.parseUnits('20000', 18))
       await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0))
 
       const [period, allocated, beneficiary] = await ctx.allocator.getCoverOrderMarketInfo(0, ctx.marketIdA)
@@ -1130,7 +1148,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       const { tree, root } = buildTree([
         [0n, [mca(ctx.marketIdA, coverA), mca(ctx.marketIdB, coverB)], premium],
       ])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, totalCover)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, totalCover, ethers.parseUnits('200000', 18))
       await allocator.connect(allocatorRole).settleCoverOrder(
         0,
         [mcaStruct(ctx.marketIdA, coverA), mcaStruct(ctx.marketIdB, coverB)],
@@ -1167,7 +1185,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       await readyToMatch(ctx)
       const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, cover)], premium]])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover, cover)
 
       // Advance one period: order.period (2) < currentPeriod (3) → settle window expired
       await ctx.advanceToPeriod(3)
@@ -1189,7 +1207,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       await readyToMatch(ctx)
       const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, cover)], premium]])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover, ethers.parseUnits('20000', 18))
 
       // Still at order.period (2) — settle must succeed
       await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(ctx.marketIdA, cover)], getProof(tree, 0))
@@ -1284,7 +1302,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       await readyToMatch(ctx)
       const { tree, root } = buildTree([[0n, [mca(ctx.marketIdA, cover)], premium]])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover, cover)
 
       // Expire and clean up
       await ctx.advanceToPeriod(3)
@@ -1354,14 +1372,14 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       const end = BigInt(await time.latest()) + GRACE + 1000n
       await vault.setCurrentPeriodEnd(end)
       await time.setNextBlockTimestamp(end - GRACE)
-      await expect(allocator.connect(allocatorRole).commitAllocation(period, root, cover))
+      await expect(allocator.connect(allocatorRole).commitAllocation(period, root, cover, cover))
         .to.be.revertedWithCustomError(allocator, 'CommitTooCloseToPeriodEnd')
 
       // One second earlier the grace window still fits: accepted.
       const end2 = end + GRACE + 1000n
       await vault.setCurrentPeriodEnd(end2)
       await time.setNextBlockTimestamp(end2 - GRACE - 1n)
-      await allocator.connect(allocatorRole).commitAllocation(period, root, cover)
+      await allocator.connect(allocatorRole).commitAllocation(period, root, cover, cover)
     })
 
     it('settle reverts during grace, succeeds after', async () => {
@@ -1380,7 +1398,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await allocator.connect(configAdmin).setSettlementGracePeriod(GRACE)
 
       const { tree, root } = buildTree([[0n, [mca(marketIdA, cover)], premium]])
-      const tx = await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
+      const tx = await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover, ethers.parseUnits('20000', 18))
       const block = await ethers.provider.getBlock(tx.blockNumber)
       const expiresAt = block.timestamp + GRACE
 
@@ -1409,13 +1427,13 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await allocator.connect(configAdmin).setSettlementGracePeriod(GRACE)
 
       const { root: firstRoot } = buildTree([[0n, [mca(marketIdA, cover)], premium]])
-      const matchTx = await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),firstRoot, cover)
+      const matchTx = await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),firstRoot, cover, ethers.parseUnits('20000', 18))
       const matchBlock = await ethers.provider.getBlock(matchTx.blockNumber)
       const firstExpiry = matchBlock.timestamp + GRACE
 
       await time.increaseTo(matchBlock.timestamp + GRACE / 2)
       const { tree, root } = buildTree([[0n, [mca(marketIdA, cover)], premium]])
-      const resubTx = await allocator.connect(configAdmin).recommitAllocation(2, root, cover)
+      const resubTx = await allocator.connect(configAdmin).recommitAllocation(2, root, cover, ethers.parseUnits('20000', 18))
       const resubBlock = await ethers.provider.getBlock(resubTx.blockNumber)
       const newExpiry = resubBlock.timestamp + GRACE
 
@@ -1428,6 +1446,39 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await time.increaseTo(newExpiry)
       await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover)], getProof(tree, 0))
       expect((await allocator.getCoverOrder(0)).status).to.equal(Status.MATCHED)
+    })
+
+    it('late recommit is rejected when its fresh window would reach the period end; lowering the grace unblocks it', async () => {
+      const ctx = await loadFixture(deployCoverOrderAllocator)
+      const { allocator, vault, usdc, firstLossBufferWallet, allocatorRole, configAdmin, buyer1, PERIOD_DURATION, marketIdA } = ctx
+      await usdc.mint(firstLossBufferWallet.address, ethers.parseUnits('10000', 6))
+      await vault.setTotalAssets(0)
+
+      const cover = ethers.parseUnits('1000', 18)
+      const premium = prorate(cover, 500, PERIOD_DURATION)
+      await ctx.fundAndApprove(buyer1, usdc, premium)
+      await createOrder(ctx, { buyer: buyer1, token: usdc, coverAmount: cover, rate: 500, orderType: NEW })
+      await readyToMatch(ctx)
+
+      const GRACE = 3600n
+      await allocator.connect(configAdmin).setSettlementGracePeriod(GRACE)
+
+      const { root } = buildTree([[0n, [mca(marketIdA, cover)], premium]])
+      const period = await ctx.vault.currentPeriod()
+      await allocator.connect(allocatorRole).commitAllocation(period, root, cover, cover)
+
+      // Less than a grace window remains in the period: the swap would store a dead window.
+      const end = BigInt(await time.latest()) + GRACE / 2n
+      await vault.setCurrentPeriodEnd(end)
+      const root2 = ethers.id('replacement-root')
+      await expect(allocator.connect(configAdmin).recommitAllocation(period, root2, cover, cover))
+        .to.be.revertedWithCustomError(allocator, 'CommitTooCloseToPeriodEnd')
+
+      // Lowering the grace makes the fresh window fit; the replacement stays settleable in-period.
+      await allocator.connect(configAdmin).setSettlementGracePeriod(0)
+      const tx = await allocator.connect(configAdmin).recommitAllocation(period, root2, cover, cover)
+      const block = await ethers.provider.getBlock(tx.blockNumber)
+      expect((await allocator.getAllocationCommitment(period)).graceExpiresAt).to.equal(block.timestamp)
     })
 
     it('grace updates after a commit do not move its frozen settle window', async () => {
@@ -1446,7 +1497,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       await allocator.connect(configAdmin).setSettlementGracePeriod(GRACE)
 
       const { tree, root } = buildTree([[0n, [mca(marketIdA, cover)], premium]])
-      const tx = await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(), root, cover)
+      const tx = await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(), root, cover, ethers.parseUnits('20000', 18))
       const block = await ethers.provider.getBlock(tx.blockNumber)
       const expiresAt = block.timestamp + GRACE
 
@@ -1477,7 +1528,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       expect(await allocator.settlementGracePeriod()).to.equal(0)
       const { tree, root } = buildTree([[0n, [mca(marketIdA, cover)], premium]])
-      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover)
+      await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(),root, cover, ethers.parseUnits('20000', 18))
       await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover)], getProof(tree, 0))
       expect((await allocator.getCoverOrder(0)).status).to.equal(Status.MATCHED)
     })

@@ -84,7 +84,7 @@ contract MockIncidentManagerCoverOrderAllocator is ICoverOrderAllocator {
         return 0;
     }
 
-    function commitAllocation(uint256, bytes32, uint256) external pure override {}
+    function commitAllocation(uint256, bytes32, uint256, uint256) external pure override {}
     function setPriceFeedAdapter(IAggregatorV3) external pure override {}
     function setMaxPriceAge(uint48) external pure override {}
     function setSettlementGracePeriod(uint48) external pure override {}
@@ -96,7 +96,7 @@ contract MockIncidentManagerCoverOrderAllocator is ICoverOrderAllocator {
     function batchSettleCoverOrder(SettleParams[] calldata) external pure override {}
     function cancelCoverOrder(uint256) external pure override {}
     function cancelExpiredOrders(uint256[] calldata) external pure override {}
-    function recommitAllocation(uint256, bytes32, uint256) external pure override {}
+    function recommitAllocation(uint256, bytes32, uint256, uint256) external pure override {}
     function cancelCommitAllocation(uint256) external pure override {}
 
     function setPremiumCollector(address) external pure override {}

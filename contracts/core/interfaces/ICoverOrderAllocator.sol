@@ -42,7 +42,8 @@ import {CoverNFT} from "../CoverNFT.sol";
  *   5. Run the matching algorithm → produces per-order `allocatedCoverPerMarket[]`
  *   6. Build a StandardMerkleTree with leaves: `(uint256 orderId, (bytes32,uint256)[] marketCoverAllocations)`
  *      (premiums are recomputed on-chain at settlement, pro-rata from each order's stored terms)
- *   7. Call `commitAllocation(commitmentPeriod, merkleRoot, totalAllocated)` to commit
+ *   7. Call `commitAllocation(commitmentPeriod, merkleRoot, totalAllocated, matchingCapacity)`
+ *      to commit, where `matchingCapacity` is the capacity of step 4 the matching ran against
  *   8. Call `batchSettleCoverOrder(params)` or `settleCoverOrder(...)` for each order with its Merkle proof
  *
  * ## Leaf encoding
@@ -413,6 +414,11 @@ interface ICoverOrderAllocator {
     /// @param allocation Requested allocation, in canonical USD.
     /// @param capacity Effective capacity ceiling, in canonical USD.
     error TotalAllocationOverflow(uint256 allocation, uint256 capacity);
+    /// @notice Thrown when the caller's matching capacity exceeds the live capacity
+    ///         widened by the period's divergence tolerance.
+    /// @param matchingCapacity Capacity the matcher ran against, in canonical USD.
+    /// @param maxCapacity Live capacity ceiling (incl. tolerance), in canonical USD.
+    error MatchingCapacityOverflow(uint256 matchingCapacity, uint256 maxCapacity);
     /// @notice Thrown when a market's allocated cover exceeds its requested cover.
     /// @param allocation Allocated cover, in canonical USD.
     /// @param capacity Requested cover for that market, in canonical USD.
@@ -508,14 +514,25 @@ interface ICoverOrderAllocator {
     /// @dev The vault asset price is read from the registered `priceFeedAdapter` oracle.
     ///      Reverts if the grace window (`block.timestamp + settlementGracePeriod`) would
     ///      reach the period end, since no order could ever settle against the commitment.
+    ///      Stores `matchingCapacity` — the capacity the off-chain matcher ran against —
+    ///      as the commitment's `totalAvailableCapacity`, so the committed tree can be
+    ///      re-derived exactly; the live recompute (widened by `divergenceToleranceBps`)
+    ///      only bounds it.
     /// @param commitmentPeriod The period the caller intends to match. Must equal
     ///        `vault.currentPeriod()` at execution time, otherwise the call reverts.
     /// @param merkleRoot Root of the StandardMerkleTree containing settlement leaves.
     ///        Each leaf encodes `(orderId, MarketCoverAllocation[])` with
     ///        `allocatedCover` in canonical USD.
     /// @param totalAllocated Sum of all allocated cover across all orders in the tree,
-    ///        in canonical USD.
-    function commitAllocation(uint256 commitmentPeriod, bytes32 merkleRoot, uint256 totalAllocated) external;
+    ///        in canonical USD. Must not exceed `matchingCapacity`.
+    /// @param matchingCapacity Capacity the matching ran against, in canonical USD. Must
+    ///        not exceed the live capacity widened by the period's divergence tolerance.
+    function commitAllocation(
+        uint256 commitmentPeriod,
+        bytes32 merkleRoot,
+        uint256 totalAllocated,
+        uint256 matchingCapacity
+    ) external;
 
     /// @notice Settles a single order against the committed Merkle root. Only ALLOCATOR_ROLE.
     /// @dev The premium is computed on-chain, pro-rata per market from the order's stored
@@ -545,8 +562,8 @@ interface ICoverOrderAllocator {
     function cancelExpiredOrders(uint256[] calldata coverOrderIds) external;
 
     /// @notice Replaces a committed Merkle root if no orders have been settled yet. Only CONFIG_ADMIN_ROLE.
-    /// @dev Restricted to the current period; recomputes capacity from live inputs so the new
-    ///      declared allocation is bound to the period's real collateral within tolerance.
+    /// @dev Restricted to the current period; the new matching capacity is bound to the
+    ///      period's real collateral within tolerance, recomputed from live inputs.
     ///      Resets the commitment's `graceExpiresAt` from the current `settlementGracePeriod`,
     ///      under the same period-end proximity check as `commitAllocation` — no commitment can
     ///      ever store a window past its period end. Recommitting the same root is the supported
@@ -556,7 +573,13 @@ interface ICoverOrderAllocator {
     /// @param period Period whose commitment is replaced; must equal the current vault period.
     /// @param newMerkleRoot New StandardMerkleTree root of settlement leaves.
     /// @param newTotalAllocated New declared sum of allocated cover, in canonical USD.
-    function recommitAllocation(uint256 period, bytes32 newMerkleRoot, uint256 newTotalAllocated) external;
+    /// @param newMatchingCapacity Capacity the new matching ran against, in canonical USD.
+    function recommitAllocation(
+        uint256 period,
+        bytes32 newMerkleRoot,
+        uint256 newTotalAllocated,
+        uint256 newMatchingCapacity
+    ) external;
 
     /// @notice Cancels a period's commitment if no orders have been settled yet. Only CONFIG_ADMIN_ROLE.
     /// @dev Emergency path to withdraw a bad Merkle root without providing a replacement and
