@@ -89,12 +89,13 @@ describe('CoverOrderAllocator / admin + market management', function () {
         .to.be.revertedWithCustomError(allocator, 'InvalidLeverage')
       await expect(allocator.connect(configAdmin).setCapacityConfig({ ...ok, effectiveLeverage: 60000 }))
         .to.emit(allocator, 'CapacityConfigUpdated')
-      // The cap is relative: the same leverage that fails at minCAR=10000 passes at minCAR=20000.
-      await expect(allocator.connect(configAdmin).setCapacityConfig({ ...ok, minCAR: 10000, effectiveLeverage: 60000 }))
+      // The cap is relative: the same leverage that fails at minCAR=12000 passes at minCAR=14000.
+      await expect(allocator.connect(configAdmin).setCapacityConfig({ ...ok, minCAR: 12000, effectiveLeverage: 70000 }))
         .to.be.revertedWithCustomError(allocator, 'InvalidLeverage')
-      await expect(allocator.connect(configAdmin).setCapacityConfig({ ...ok, minCAR: 20000, effectiveLeverage: 60000 }))
+      await expect(allocator.connect(configAdmin).setCapacityConfig({ ...ok, minCAR: 14000, effectiveLeverage: 70000 }))
         .to.emit(allocator, 'CapacityConfigUpdated')
-      await expect(allocator.connect(configAdmin).setCapacityConfig({ ...ok, minCAR: 9999 }))
+      // minCAR floor is MIN_CAR_BPS (1.2x): just below reverts, the exact floor is `ok` itself.
+      await expect(allocator.connect(configAdmin).setCapacityConfig({ ...ok, minCAR: 11999 }))
         .to.be.revertedWithCustomError(allocator, 'InvalidMinCAR')
       await expect(allocator.connect(configAdmin).setCapacityConfig({ ...ok, firstLossBufferToken: ethers.ZeroAddress }))
         .to.be.revertedWithCustomError(allocator, 'InvalidZeroAddress')

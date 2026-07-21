@@ -80,6 +80,10 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
     // `minCAR / (effectiveLeverage × (1 + tolerance))`, so bounding the ratio floors it at
     // `1 / (MAX_LEVERAGE_FACTOR × (1 + tolerance))` regardless of the configured `minCAR`.
     uint256 private constant MAX_LEVERAGE_FACTOR = 5;
+    // Floor for `CapacityConfig.minCAR`: the CAR target enforced at capacity sizing time.
+    // No upper bound needed — `MAX_LEVERAGE_FACTOR` scales with `minCAR`, so raising it
+    // can only make capacity more conservative.
+    uint256 private constant MIN_CAR_BPS = 12_000; // 1.2x
 
     // --- ERC-7201 Namespaced Storage ---
     /// @custom:storage-location erc7201:firelight.coverorderallocator.storage
@@ -630,7 +634,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
     }
 
     function _setCapacityConfig(CapacityConfig calldata config) internal {
-        if (config.minCAR < BPS_DENOMINATOR) revert InvalidMinCAR();
+        if (config.minCAR < MIN_CAR_BPS) revert InvalidMinCAR();
         _requireNonZero(address(config.firstLossBufferToken));
         _requireNonZero(config.firstLossBuffer);
         if (config.effectiveLeverage == 0 || config.effectiveLeverage > MAX_LEVERAGE_FACTOR * config.minCAR)

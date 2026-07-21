@@ -45,9 +45,9 @@ describe('CoverOrderAllocator / initialization', function () {
   it('stores the capacity config', async () => {
     const { allocator, firstLossBufferWallet } = await loadFixture(deployCoverOrderAllocator)
     const cfg = await allocator.getEffectiveCapacityConfig()
-    expect(cfg.minCAR).to.equal(10000)
+    expect(cfg.minCAR).to.equal(12000)
     expect(cfg.firstLossBuffer).to.equal(firstLossBufferWallet.address)
-    expect(cfg.effectiveLeverage).to.equal(20000)
+    expect(cfg.effectiveLeverage).to.equal(24000)
   })
 
   it('initialize reverts on zero-address arguments', async () => {

@@ -9,7 +9,7 @@
     "capacityConfig": {
       "minLeverage": 10000,
       "maxLeverage": 50000,
-      "minCAR": 10000,
+      "minCAR": 12000,
       "firstLossBufferBalance": "10"
     },
     "premiumTokens": [
@@ -34,7 +34,7 @@
     ]
   },
   "matchingParams": {
-    "effectiveLeverage": 10000,
+    "effectiveLeverage": 12000,
     "assetPriceUSD": "1000000000000000000"
   },
   "orders": [

@@ -917,10 +917,10 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
     // Must be called while currentPeriod < 2 so it is effective at the commit period (2).
     const setTolerance = async (ctx, bps) => {
       await ctx.allocator.connect(ctx.configAdmin).setCapacityConfig({
-        minCAR: 10000,
+        minCAR: 12000,
         firstLossBufferToken: await ctx.usdc.getAddress(),
         firstLossBuffer: ctx.firstLossBufferWallet.address,
-        effectiveLeverage: 20000,
+        effectiveLeverage: 24000,
         minOrderMarketCoverAmount: 1,
         divergenceToleranceBps: bps,
       })

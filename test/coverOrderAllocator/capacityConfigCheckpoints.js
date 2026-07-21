@@ -24,10 +24,10 @@ const ensurePeriod = async (vault, p) => {
 }
 
 const cfgWith = (firstLossBuffer, firstLossBufferToken, overrides = {}) => ({
-  minCAR: 10000n,
+  minCAR: 12000n,
   firstLossBufferToken,
   firstLossBuffer,
-  effectiveLeverage: 20000n,
+  effectiveLeverage: 24000n,
   minOrderMarketCoverAmount: 1n,
   divergenceToleranceBps: 0,
   ...overrides,
@@ -39,8 +39,8 @@ describe('CoverOrderAllocator / capacityConfig checkpoints', function () {
     it('returns the initial config right after deploy', async () => {
       const { allocator } = await loadFixture(deployCoverOrderAllocator)
       const cfg = await allocator.getEffectiveCapacityConfig()
-      expect(cfg.effectiveLeverage).to.equal(20000n)
-      expect(cfg.minCAR).to.equal(10000n)
+      expect(cfg.effectiveLeverage).to.equal(24000n)
+      expect(cfg.minCAR).to.equal(12000n)
       expect(cfg.minOrderMarketCoverAmount).to.equal(1n)
     })
 
@@ -62,7 +62,7 @@ describe('CoverOrderAllocator / capacityConfig checkpoints', function () {
 
       // Still at period 3 → must return the initial config (A), not the pending B.
       const cfg = await allocator.getCapacityConfigAt(currentPeriod)
-      expect(cfg.effectiveLeverage).to.equal(20000n)
+      expect(cfg.effectiveLeverage).to.equal(24000n)
     })
 
     it('returns the latest past config when the query is far past the last update', async () => {
@@ -124,7 +124,7 @@ describe('CoverOrderAllocator / capacityConfig checkpoints', function () {
       await vault.setCurrentPeriod(2)
       const con = await await allocator.getEffectiveCapacityConfig();
       const pwe = await vault.currentPeriod();
-      expect((await allocator.getEffectiveCapacityConfig()).effectiveLeverage).to.equal(20000n)
+      expect((await allocator.getEffectiveCapacityConfig()).effectiveLeverage).to.equal(24000n)
     })
 
     it('first config is anchored at period 0 (no orphan history slot before init)', async () => {
@@ -138,9 +138,9 @@ describe('CoverOrderAllocator / capacityConfig checkpoints', function () {
 
       const cfgAt0 = await allocator.getCapacityConfigAt(0)
       const cfgAt1 = await allocator.getCapacityConfigAt(1)
-      expect(cfgAt0.effectiveLeverage).to.equal(20000n)
-      expect(cfgAt0.minCAR).to.equal(10000n)
-      expect(cfgAt1.effectiveLeverage).to.equal(20000n)
+      expect(cfgAt0.effectiveLeverage).to.equal(24000n)
+      expect(cfgAt0.minCAR).to.equal(12000n)
+      expect(cfgAt1.effectiveLeverage).to.equal(24000n)
     })
 
     it('immediate update right after init does not orphan the lookup at past periods', async () => {
@@ -157,8 +157,8 @@ describe('CoverOrderAllocator / capacityConfig checkpoints', function () {
       )
 
       // Before the update takes effect (next period), past lookups still see A=20000.
-      expect((await allocator.getCapacityConfigAt(0)).effectiveLeverage).to.equal(20000n)
-      expect((await allocator.getCapacityConfigAt(1)).effectiveLeverage).to.equal(20000n)
+      expect((await allocator.getCapacityConfigAt(0)).effectiveLeverage).to.equal(24000n)
+      expect((await allocator.getCapacityConfigAt(1)).effectiveLeverage).to.equal(24000n)
       // From period 2 onwards, B is active.
       expect((await allocator.getCapacityConfigAt(2)).effectiveLeverage).to.equal(49999n)
     })

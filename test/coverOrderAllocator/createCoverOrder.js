@@ -112,10 +112,10 @@ describe('CoverOrderAllocator / createCoverOrder', function () {
     const token = await usdc.getAddress()
     // Set a higher minimum (in 18d canonical units).
     await allocator.connect(configAdmin).setCapacityConfig({
-      minCAR: 10000,
+      minCAR: 12000,
       firstLossBufferToken: token,
       firstLossBuffer: firstLossBufferWallet.address,
-      effectiveLeverage: 20000,
+      effectiveLeverage: 24000,
       minOrderMarketCoverAmount: 5000,
       divergenceToleranceBps: 0
     })

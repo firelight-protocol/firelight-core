@@ -171,7 +171,7 @@ interface ICoverOrderAllocator {
 
     /// @notice Per-period capacity configuration (checkpointed; effective at currentPeriod() + 1).
     struct CapacityConfig {
-        /// Minimum capital adequacy ratio, in bps (>= BPS_DENOMINATOR).
+        /// Minimum capital adequacy ratio, in bps (>= MIN_CAR_BPS, the spec's 1.2x floor).
         uint256 minCAR;
         /// ERC20 (decimals ≤ CANONICAL_DECIMALS) used as first-loss-buffer collateral.
         IERC20 firstLossBufferToken;
