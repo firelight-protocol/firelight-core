@@ -173,7 +173,7 @@ interface ICoverOrderAllocator {
 
     /// @notice Per-period capacity configuration (checkpointed; effective at currentPeriod() + 1).
     struct CapacityConfig {
-        /// Minimum capital adequacy ratio, in bps (>= MIN_CAR_BPS, the spec's 1.2x floor).
+        /// Minimum capital adequacy ratio, in bps (1.2x to 5x, inclusive).
         uint256 minCAR;
         /// ERC20 (decimals ≤ CANONICAL_DECIMALS) used as first-loss-buffer collateral.
         IERC20 firstLossBufferToken;
@@ -447,7 +447,7 @@ interface ICoverOrderAllocator {
     error InvalidZeroAddress();
     /// @notice Thrown when the configured leverage is zero.
     error InvalidLeverage();
-    /// @notice Thrown when the configured minimum CAR is below 100% (BPS_DENOMINATOR).
+    /// @notice Thrown when the configured minimum CAR is outside the supported 1.2x to 5x range.
     error InvalidMinCAR();
     /// @notice Thrown when the configured maximum price age is zero.
     error InvalidMaxPriceAge();

@@ -70,6 +70,15 @@ describe('CoverOrderAllocator / admin + market management', function () {
   })
 
   describe('setCapacityConfig', () => {
+    it('accepts minCAR up to 5x and rejects values above it', async () => {
+      const { allocator, configAdmin, capacityConfig } = await loadFixture(deployCoverOrderAllocator)
+
+      await expect(allocator.connect(configAdmin).setCapacityConfig({ ...capacityConfig, minCAR: 50000 }))
+        .to.emit(allocator, 'CapacityConfigUpdated')
+      await expect(allocator.connect(configAdmin).setCapacityConfig({ ...capacityConfig, minCAR: 50001 }))
+        .to.be.revertedWithCustomError(allocator, 'InvalidMinCAR')
+    })
+
     it('only admin + validation + emits', async () => {
       const { allocator, configAdmin, buyer1, firstLossBufferWallet, usdc } = await loadFixture(deployCoverOrderAllocator)
       const ok = {
