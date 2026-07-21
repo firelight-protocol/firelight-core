@@ -153,14 +153,14 @@ describe('CoverOrderAllocator / capacityConfig checkpoints', function () {
       const { allocator, configAdmin, firstLossBufferWallet } = ctx
 
       await allocator.connect(configAdmin).setCapacityConfig(
-        cfgWith(firstLossBufferWallet.address, ctx.usdc.target, { effectiveLeverage: 99999n })
+        cfgWith(firstLossBufferWallet.address, ctx.usdc.target, { effectiveLeverage: 49999n })
       )
 
       // Before the update takes effect (next period), past lookups still see A=20000.
       expect((await allocator.getCapacityConfigAt(0)).effectiveLeverage).to.equal(20000n)
       expect((await allocator.getCapacityConfigAt(1)).effectiveLeverage).to.equal(20000n)
       // From period 2 onwards, B is active.
-      expect((await allocator.getCapacityConfigAt(2)).effectiveLeverage).to.equal(99999n)
+      expect((await allocator.getCapacityConfigAt(2)).effectiveLeverage).to.equal(49999n)
     })
 
     it('latest write wins when multiple updates land on the same effectivePeriod', async () => {

@@ -76,6 +76,10 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
     // is accepted under-collateralization vs the CAR target, only meant to absorb the
     // price/FLB drift between the off-chain matcher snapshot and commit inclusion.
     uint16 private constant MAX_DIVERGENCE_TOLERANCE_BPS = 1_000; // 10%
+    // Cap on `effectiveLeverage` relative to `minCAR`. Real backing behind sold cover is
+    // `minCAR / (effectiveLeverage × (1 + tolerance))`, so bounding the ratio floors it at
+    // `1 / (MAX_LEVERAGE_FACTOR × (1 + tolerance))` regardless of the configured `minCAR`.
+    uint256 private constant MAX_LEVERAGE_FACTOR = 5;
 
     // --- ERC-7201 Namespaced Storage ---
     /// @custom:storage-location erc7201:firelight.coverorderallocator.storage
@@ -129,14 +133,14 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
     ///         and the initial capacity configuration.
     /// @param params Initialization parameters; see {ICoverOrderAllocator.InitParams}.
     function initialize(InitParams calldata params) external initializer {
-        if (address(params.vault) == address(0)) revert InvalidZeroAddress();
-        if (params.premiumCollector == address(0)) revert InvalidZeroAddress();
-        if (address(params.coverNFT) == address(0)) revert InvalidZeroAddress();
-        if (params.admin == address(0)) revert InvalidZeroAddress();
-        if (params.adminRole == address(0)) revert InvalidZeroAddress();
-        if (params.curatorRole == address(0)) revert InvalidZeroAddress();
-        if (params.allocatorRole == address(0)) revert InvalidZeroAddress();
-        if (params.configAdminRole == address(0)) revert InvalidZeroAddress();
+        _requireNonZero(address(params.vault));
+        _requireNonZero(params.premiumCollector);
+        _requireNonZero(address(params.coverNFT));
+        _requireNonZero(params.admin);
+        _requireNonZero(params.adminRole);
+        _requireNonZero(params.curatorRole);
+        _requireNonZero(params.allocatorRole);
+        _requireNonZero(params.configAdminRole);
 
         __AccessControl_init();
         __ReentrancyGuard_init();
@@ -153,7 +157,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
 
         for (uint256 i; i < params.premiumTokens.length; ++i) {
             address token = params.premiumTokens[i];
-            if (token == address(0)) revert InvalidZeroAddress();
+            _requireNonZero(token);
             $.premiumTokenDecimals[token] = _readDecimals(token);
             $.supportedPremiumTokens.add(token);
         }
@@ -188,8 +192,8 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
         MarketAllocationInput[] calldata markets,
         CoverOrderType orderType
     ) external onlyRole(CURATOR_ROLE) returns (uint256 coverOrderId) {
-        if (buyer == address(0)) revert InvalidZeroAddress();
-        if (payoutRecipient == address(0)) revert InvalidZeroAddress();
+        _requireNonZero(buyer);
+        _requireNonZero(payoutRecipient);
         if (bytes(beneficiaryAddress).length == 0) revert InvalidZeroAddress();
         if (markets.length == 0) revert InvalidMarketsLength();
 
@@ -551,7 +555,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
 
     /// @inheritdoc ICoverOrderAllocator
     function setPremiumCollector(address newCollector) external onlyRole(ADMIN_ROLE) {
-        if (newCollector == address(0)) revert InvalidZeroAddress();
+        _requireNonZero(newCollector);
 
         CoverOrderAllocatorStorage storage $ = _getStorage();
         address old = $.premiumCollector;
@@ -583,7 +587,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
     }
 
     function _setPriceFeedAdapter(IAggregatorV3 newPriceFeedAdapter) internal {
-        if (address(newPriceFeedAdapter) == address(0)) revert InvalidZeroAddress();
+        _requireNonZero(address(newPriceFeedAdapter));
 
         CoverOrderAllocatorStorage storage $ = _getStorage();
 
@@ -627,10 +631,10 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
 
     function _setCapacityConfig(CapacityConfig calldata config) internal {
         if (config.minCAR < BPS_DENOMINATOR) revert InvalidMinCAR();
-        if (address(config.firstLossBufferToken) == address(0)) revert InvalidZeroAddress();
-        if (config.firstLossBuffer == address(0)) revert InvalidZeroAddress();
-        // TODO: Add max cap on leverage?
-        if (config.effectiveLeverage == 0) revert InvalidLeverage();
+        _requireNonZero(address(config.firstLossBufferToken));
+        _requireNonZero(config.firstLossBuffer);
+        if (config.effectiveLeverage == 0 || config.effectiveLeverage > MAX_LEVERAGE_FACTOR * config.minCAR)
+            revert InvalidLeverage();
         if (config.minOrderMarketCoverAmount == 0) revert InvalidMinOrderMarketCoverAmount();
         if (config.divergenceToleranceBps > MAX_DIVERGENCE_TOLERANCE_BPS)
             revert InvalidDivergenceTolerance(config.divergenceToleranceBps);
@@ -792,7 +796,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
 
     /// @inheritdoc ICoverOrderAllocator
     function addSupportedPremiumToken(address token) external onlyRole(CONFIG_ADMIN_ROLE) {
-        if (token == address(0)) revert InvalidZeroAddress();
+        _requireNonZero(token);
         CoverOrderAllocatorStorage storage $ = _getStorage();
         if (!$.supportedPremiumTokens.add(token)) revert PremiumTokenAlreadySupported();
 
@@ -942,5 +946,10 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
     function _readDecimals(address token) private view returns (uint8 dec) {
         dec = IERC20Metadata(token).decimals();
         if (dec > CANONICAL_DECIMALS) revert UnsupportedDecimals(dec);
+    }
+
+    /// @dev Shared zero-address guard; deduplicated into a helper to keep bytecode size down.
+    function _requireNonZero(address account) private pure {
+        if (account == address(0)) revert InvalidZeroAddress();
     }
 }

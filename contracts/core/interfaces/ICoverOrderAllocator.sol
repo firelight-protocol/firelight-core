@@ -177,7 +177,8 @@ interface ICoverOrderAllocator {
         IERC20 firstLossBufferToken;
         /// Custody wallet holding the first-loss-buffer balance.
         address firstLossBuffer;
-        /// Leverage applied to collateral when computing capacity, in bps.
+        /// Leverage applied to collateral when computing capacity, in bps
+        /// (> 0, <= MAX_LEVERAGE_FACTOR * minCAR).
         uint256 effectiveLeverage;
         /// Minimum per-market cover amount allowed on an order, in canonical USD.
         uint256 minOrderMarketCoverAmount;
