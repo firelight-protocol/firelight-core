@@ -7,8 +7,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 /**
  * @dev Minimal mock of IFirelightVault for CoverOrderAllocator tests.
  *
- *      CoverOrderAllocator only consumes `currentPeriod`, `totalAssetsAt`,
- *      `currentPeriodStart` and `periodConfigurationAtNumber`. All other interface members are stubbed with
+ *      CoverOrderAllocator only consumes `currentPeriod`, `totalAssetsAt`, `currentPeriodStart`,
+ *      `currentPeriodEnd` and `periodConfigurationAtNumber`. All other interface members are stubbed with
  *      safe zero / no-op defaults so the mock satisfies the full interface but is
  *      not exercised beyond the CoverOrderAllocator's needs.
  */
@@ -17,6 +17,8 @@ contract MockCoverOrderAllocatorVault is IFirelightVault {
     uint256 private _totalAssets;
     address private _asset;
     uint48 private _currentPeriodStart;
+    // Far-future default keeps the commit period-end proximity check inert unless a test opts in.
+    uint48 private _currentPeriodEnd = type(uint48).max;
     bool private _hasSnapshot;
     uint256 private _totalAssetsAtSnapshot;
     mapping(uint256 => PeriodConfiguration) private _periodConfigs;
@@ -42,6 +44,7 @@ contract MockCoverOrderAllocatorVault is IFirelightVault {
     function setTotalAssets(uint256 a) external { _totalAssets = a; }
     function setAsset(address a) external { _asset = a; }
     function setCurrentPeriodStart(uint48 ts) external { _currentPeriodStart = ts; }
+    function setCurrentPeriodEnd(uint48 ts) external { _currentPeriodEnd = ts; }
     function setTotalAssetsAtSnapshot(uint256 a) external {
         _totalAssetsAtSnapshot = a;
         _hasSnapshot = true;
@@ -182,7 +185,7 @@ contract MockCoverOrderAllocatorVault is IFirelightVault {
     }
 
     function currentPeriodStart() external view override returns (uint48) { return _currentPeriodStart; }
-    function currentPeriodEnd() external pure override returns (uint48) { return 0; }
+    function currentPeriodEnd() external view override returns (uint48) { return _currentPeriodEnd; }
     function nextPeriodEnd() external pure override returns (uint48) { return 0; }
     function periodConfigurationsLength() external pure override returns (uint256) { return 0; }
 

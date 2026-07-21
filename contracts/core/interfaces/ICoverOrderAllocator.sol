@@ -201,8 +201,10 @@ interface ICoverOrderAllocator {
         uint256 totalSettledCover;
         /// Cumulative premium settled so far, in canonical USD.
         uint256 totalSettledPremium;
-        /// Timestamp of the most recent commit (initial or recommit); drives the grace gate.
-        uint48 committedAt;
+        /// Timestamp at which the grace elapses and settlement can begin. Frozen at
+        /// commit/recommit time from the then-current `settlementGracePeriod`; later
+        /// grace updates never alter an already-published window.
+        uint48 graceExpiresAt;
     }
 
     /// @notice Per-market allocation encoded in a settlement leaf and passed to settle.
@@ -398,6 +400,9 @@ interface ICoverOrderAllocator {
     error OrderNotPending();
     /// @notice Thrown when committing to a period that already has a commitment.
     error PeriodAlreadyCommitted();
+    /// @notice Thrown when a commit or recommit is so late in the period that its grace window
+    ///         would reach the period end, leaving no instant at which settlement is possible.
+    error CommitTooCloseToPeriodEnd();
     /// @notice Thrown when the commit/recommit period is not the current vault period.
     /// @param commitmentPeriod Period the caller passed.
     /// @param currentPeriod Current vault period at execution.
@@ -461,6 +466,11 @@ interface ICoverOrderAllocator {
     /// @notice Thrown when the configured divergence tolerance exceeds the hard ceiling.
     /// @param bps Provided tolerance, in bps.
     error InvalidDivergenceTolerance(uint16 bps);
+    /// @notice Thrown when the settlement grace period exceeds its ceiling relative to the
+    ///         current period duration.
+    /// @param gracePeriod Provided grace period, in seconds.
+    /// @param maxGracePeriod Maximum allowed grace period, in seconds.
+    error InvalidGracePeriod(uint48 gracePeriod, uint48 maxGracePeriod);
     /// @notice Thrown when referencing a premium token that is not whitelisted.
     error UnsupportedPremiumToken();
     /// @notice Thrown when a token reports decimals greater than the canonical 18.
@@ -496,6 +506,8 @@ interface ICoverOrderAllocator {
 
     /// @notice Commits a Merkle root with matching results. Only ALLOCATOR_ROLE.
     /// @dev The vault asset price is read from the registered `priceFeedAdapter` oracle.
+    ///      Reverts if the grace window (`block.timestamp + settlementGracePeriod`) would
+    ///      reach the period end, since no order could ever settle against the commitment.
     /// @param commitmentPeriod The period the caller intends to match. Must equal
     ///        `vault.currentPeriod()` at execution time, otherwise the call reverts.
     /// @param merkleRoot Root of the StandardMerkleTree containing settlement leaves.
@@ -535,6 +547,12 @@ interface ICoverOrderAllocator {
     /// @notice Replaces a committed Merkle root if no orders have been settled yet. Only CONFIG_ADMIN_ROLE.
     /// @dev Restricted to the current period; recomputes capacity from live inputs so the new
     ///      declared allocation is bound to the period's real collateral within tolerance.
+    ///      Resets the commitment's `graceExpiresAt` from the current `settlementGracePeriod`,
+    ///      under the same period-end proximity check as `commitAllocation` — no commitment can
+    ///      ever store a window past its period end. Recommitting the same root is the supported
+    ///      way to re-derive a published window after a grace update; for a swap late in the
+    ///      period, lower the grace first so the fresh window fits, or use
+    ///      `cancelCommitAllocation` to withdraw the root without a replacement.
     /// @param period Period whose commitment is replaced; must equal the current vault period.
     /// @param newMerkleRoot New StandardMerkleTree root of settlement leaves.
     /// @param newTotalAllocated New declared sum of allocated cover, in canonical USD.
@@ -581,6 +599,13 @@ interface ICoverOrderAllocator {
     /// @notice Minimum delay between `commitAllocation`/`recommitAllocation` and `settleCoverOrder`.
     ///         Gives operators a grace window to swap a bad merkle root via
     ///         `recommitAllocation` before any settle finalizes. Defaults to 0 (disabled).
+    ///         Hard-capped at 8 hours — at most a third of any period duration, since the
+    ///         vault enforces periods to be multiples of its SMALLEST_PERIOD_DURATION (1 day) —
+    ///         so the grace can never consume the settle window.
+    ///         Only affects future commitments: each commitment freezes its own
+    ///         `graceExpiresAt` at commit/recommit time, so no update can move (or kill) an
+    ///         already-published window. To re-derive a published window under a new grace,
+    ///         recommit the same root via `recommitAllocation`.
     function setSettlementGracePeriod(uint48 newGracePeriod) external;
 
     /// @notice Registers a new market. Only CONFIG_ADMIN_ROLE.

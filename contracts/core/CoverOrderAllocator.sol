@@ -83,6 +83,11 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
     // Keep governance-set CAR targets within the risk policy's approved operating range.
     uint256 private constant MIN_CAR_BPS = 12_000;
     uint256 private constant MAX_MIN_CAR_BPS = 50_000;
+    // Hard ceiling for `settlementGracePeriod`. Keeps the grace from consuming the settle
+    // window: settlement requires the grace elapsed AND the order's period still current.
+    // The vault enforces every period duration to be a multiple of SMALLEST_PERIOD_DURATION
+    // (1 day), so this bound is at most a third of any period under any future schedule.
+    uint48 private constant MAX_GRACE_PERIOD = 8 hours;
 
     // --- ERC-7201 Namespaced Storage ---
     /// @custom:storage-location erc7201:firelight.coverorderallocator.storage
@@ -200,8 +205,8 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
 
         if (!$.supportedPremiumTokens.contains(premiumToken)) revert UnsupportedPremiumToken();
 
-        uint256 targetPeriod = $.vault.currentPeriod() + 1;
-        uint256 periodDuration = uint256($.vault.periodConfigurationAtNumber(targetPeriod).duration);
+        uint256 targetPeriod = _currentPeriod() + 1;
+        uint256 periodDuration = uint256(_periodDuration(targetPeriod));
         if (periodDuration == 0) revert InvalidPeriodDuration();
 
         coverOrderId = $.nextCoverOrderId++;
@@ -332,9 +337,11 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
 
         CoverOrderAllocatorStorage storage $ = _getStorage();
 
-        uint256 currentPeriod = $.vault.currentPeriod();
+        uint256 currentPeriod = _currentPeriod();
         if (commitmentPeriod != currentPeriod) revert InvalidCommitmentPeriod(commitmentPeriod, currentPeriod);
         if ($.allocationCommitments[currentPeriod].root != bytes32(0)) revert PeriodAlreadyCommitted();
+        uint48 graceExpiresAt = uint48(block.timestamp) + $.settlementGracePeriod;
+        if (graceExpiresAt >= $.vault.currentPeriodEnd()) revert CommitTooCloseToPeriodEnd();
 
         uint256 totalAvailableCapacity = _computeAvailableCapacity($, currentPeriod);
         if (totalAllocated > totalAvailableCapacity)
@@ -344,7 +351,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
         commit.root = merkleRoot;
         commit.totalAvailableCapacity = totalAvailableCapacity;
         commit.totalDeclaredAllocated = totalAllocated;
-        commit.committedAt = uint48(block.timestamp);
+        commit.graceExpiresAt = graceExpiresAt;
 
         emit AllocationCommitted(currentPeriod, merkleRoot, totalAvailableCapacity, totalAllocated);
     }
@@ -361,6 +368,9 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
 
         AllocationCommitment storage commit = _replaceableCommitment($, period);
 
+        uint48 graceExpiresAt = uint48(block.timestamp) + $.settlementGracePeriod;
+        if (graceExpiresAt >= $.vault.currentPeriodEnd()) revert CommitTooCloseToPeriodEnd();
+
         // Recompute capacity fresh (symmetric with commitAllocation) so recommit can capture
         // recovered price/FLB and stays bound to the period's real collateral within tolerance.
         uint256 freshCapacity = _computeAvailableCapacity($, period);
@@ -369,7 +379,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
         commit.root = newMerkleRoot;
         commit.totalAvailableCapacity = freshCapacity;
         commit.totalDeclaredAllocated = newTotalAllocated;
-        commit.committedAt = uint48(block.timestamp);
+        commit.graceExpiresAt = graceExpiresAt;
 
         emit AllocationCommitted(period, newMerkleRoot, freshCapacity, newTotalAllocated);
     }
@@ -398,7 +408,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
         CoverOrderAllocatorStorage storage $,
         uint256 period
     ) private view returns (AllocationCommitment storage commit) {
-        uint256 currentPeriod = $.vault.currentPeriod();
+        uint256 currentPeriod = _currentPeriod();
         if (period != currentPeriod) revert InvalidCommitmentPeriod(period, currentPeriod);
 
         commit = $.allocationCommitments[period];
@@ -436,7 +446,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
         CoverOrder storage order = $.orders[orderId];
         if (order.buyer == address(0)) revert InvalidOrder();
         if (order.status != CoverOrderStatus.PENDING) revert OrderNotPending();
-        if ($.vault.currentPeriod() != order.period) revert SettleWindowExpired();
+        if (_currentPeriod() != order.period) revert SettleWindowExpired();
 
         MarketAllocation[] storage markets = $.orderMarkets[orderId];
         if (marketCoverAllocations.length != markets.length) revert InvalidAllocationMarketsLength();
@@ -444,8 +454,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
         AllocationCommitment storage commit = $.allocationCommitments[order.period];
         if (commit.root == bytes32(0)) revert NoCommitForPeriod();
 
-        uint48 graceExpiresAt = commit.committedAt + $.settlementGracePeriod;
-        if (block.timestamp < graceExpiresAt) revert GracePeriodActive(graceExpiresAt);
+        if (block.timestamp < commit.graceExpiresAt) revert GracePeriodActive(commit.graceExpiresAt);
 
         // Verify merkle proof (double-hash leaf per OZ standard)
         bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(orderId, marketCoverAllocations))));
@@ -455,7 +464,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
         // and rounding as order creation), and enforce per-market concentration caps.
         // The duration read here matches the one used at creation: a committed period's
         // configuration is immutable (vault updates only apply from future periods).
-        uint256 periodDuration = uint256($.vault.periodConfigurationAtNumber(order.period).duration);
+        uint256 periodDuration = uint256(_periodDuration(order.period));
         uint256 allocatedCover;
         uint256 allocatedPremium;
         for (uint256 i; i < markets.length; ++i) {
@@ -531,13 +540,13 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
     /// @inheritdoc ICoverOrderAllocator
     function cancelExpiredOrders(uint256[] calldata coverOrderIds) external {
         CoverOrderAllocatorStorage storage $ = _getStorage();
-        uint256 _currentPeriod = $.vault.currentPeriod();
+        uint256 currentPeriod = _currentPeriod();
         for (uint256 i; i < coverOrderIds.length; ++i) {
             uint256 coverOrderId = coverOrderIds[i];
             CoverOrder storage order = $.orders[coverOrderId];
             if (order.buyer == address(0)) revert InvalidOrder();
             if (order.status != CoverOrderStatus.PENDING) revert OrderNotPending();
-            if (order.period >= _currentPeriod) revert OrderNotExpired();
+            if (order.period >= currentPeriod) revert OrderNotExpired();
 
             order.status = CoverOrderStatus.CANCELLED;
 
@@ -581,6 +590,8 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
     /// @inheritdoc ICoverOrderAllocator
     function setSettlementGracePeriod(uint48 newGracePeriod) external onlyRole(CONFIG_ADMIN_ROLE) {
         CoverOrderAllocatorStorage storage $ = _getStorage();
+        if (newGracePeriod > MAX_GRACE_PERIOD) revert InvalidGracePeriod(newGracePeriod, MAX_GRACE_PERIOD);
+
         uint48 oldGracePeriod = $.settlementGracePeriod;
         $.settlementGracePeriod = newGracePeriod;
         emit SettlementGracePeriodUpdated(oldGracePeriod, newGracePeriod);
@@ -645,7 +656,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
         $.capacityConfigHistory.push(config);
         // First-ever config is effective from period 0 so any past-period
         // lookup hits a real checkpoint. Subsequent updates take effect next period.
-        uint32 effectivePeriod = idx == 0 ? 0 : uint32($.vault.currentPeriod() + 1);
+        uint32 effectivePeriod = idx == 0 ? 0 : uint32(_currentPeriod() + 1);
         $.capacityConfigCheckpoints.push(effectivePeriod, uint224(idx));
 
         emit CapacityConfigUpdated(config);
@@ -734,7 +745,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
             $.supportedProtocolConcentrationHashes.push(hash);
             emit ProtocolConcentrationRegistered(hash, c.protocol, c.chainId);
         }
-        uint32 effectivePeriod = uint32($.vault.currentPeriod() + 1);
+        uint32 effectivePeriod = uint32(_currentPeriod() + 1);
         $.protocolConcentrationCheckpoints[hash].push(effectivePeriod, uint224(c.maxProtocolConcentrationBps));
 
         emit ProtocolConcentrationUpdated(hash, oldShare, c.maxProtocolConcentrationBps);
@@ -909,8 +920,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
     }
 
     function getEffectiveCapacityConfig() external view returns (CapacityConfig memory) {
-        CoverOrderAllocatorStorage storage $ = _getStorage();
-        return _getEffectiveCapacityConfig($.vault.currentPeriod() + 1);
+        return _getEffectiveCapacityConfig(_currentPeriod() + 1);
     }
 
     function getCapacityConfigAt(uint256 period) external view returns (CapacityConfig memory) {
@@ -947,7 +957,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
     }
 
     function getEffectiveProtocolConcentration(bytes32 protocolConcentrationHash) external view returns (uint256) {
-        return _getEffectiveProtocolConcentration(protocolConcentrationHash, _getStorage().vault.currentPeriod() + 1);
+        return _getEffectiveProtocolConcentration(protocolConcentrationHash, _currentPeriod() + 1);
     }
 
     function getProtocolConcentrationAt(
@@ -970,5 +980,15 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
     /// @dev Shared zero-address guard; deduplicated into a helper to keep bytecode size down.
     function _requireNonZero(address account) private pure {
         if (account == address(0)) revert InvalidZeroAddress();
+    }
+
+    /// @dev Duration (seconds) of `period` per the vault's configuration.
+    function _periodDuration(uint256 period) private view returns (uint48) {
+        return _getStorage().vault.periodConfigurationAtNumber(period).duration;
+    }
+
+    /// @dev Current vault period; deduplicated into a helper to keep bytecode size down.
+    function _currentPeriod() private view returns (uint256) {
+        return _getStorage().vault.currentPeriod();
     }
 }

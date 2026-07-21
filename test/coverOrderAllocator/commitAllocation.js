@@ -792,7 +792,7 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
 
       const cleared = await allocator.getAllocationCommitment(2)
       expect(cleared.root).to.equal(ethers.ZeroHash)
-      expect(cleared.committedAt).to.equal(0n)
+      expect(cleared.graceExpiresAt).to.equal(0n)
 
       // PeriodAlreadyCommitted no longer applies: a corrected commit can land
       const goodRoot = ethers.id('good-root')
@@ -1320,6 +1320,50 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       }
     })
 
+    it('is hard-capped at 8 hours; the exact ceiling is accepted', async () => {
+      const { allocator, configAdmin } = await loadFixture(deployCoverOrderAllocator)
+      const maxGrace = 8n * 3600n
+
+      await expect(allocator.connect(configAdmin).setSettlementGracePeriod(maxGrace + 1n))
+        .to.be.revertedWithCustomError(allocator, 'InvalidGracePeriod')
+        .withArgs(maxGrace + 1n, maxGrace)
+      await expect(allocator.connect(configAdmin).setSettlementGracePeriod(maxGrace))
+        .to.emit(allocator, 'SettlementGracePeriodUpdated')
+        .withArgs(0, maxGrace)
+    })
+
+    it('commit reverts when the grace window would reach the period end', async () => {
+      const ctx = await loadFixture(deployCoverOrderAllocator)
+      const { allocator, vault, usdc, firstLossBufferWallet, allocatorRole, configAdmin, buyer1, PERIOD_DURATION, marketIdA } = ctx
+      await usdc.mint(firstLossBufferWallet.address, ethers.parseUnits('10000', 6))
+      await vault.setTotalAssets(0)
+
+      const cover = ethers.parseUnits('1000', 18)
+      const premium = prorate(cover, 500, PERIOD_DURATION)
+      await ctx.fundAndApprove(buyer1, usdc, premium)
+      await createOrder(ctx, { buyer: buyer1, token: usdc, coverAmount: cover, rate: 500, orderType: NEW })
+      await readyToMatch(ctx)
+
+      const GRACE = 3600n
+      await allocator.connect(configAdmin).setSettlementGracePeriod(GRACE)
+
+      const { root } = buildTree([[0n, [mca(marketIdA, cover)], premium]])
+      const period = await ctx.vault.currentPeriod()
+
+      // Exactly at the boundary (timestamp + grace == period end): no settle instant exists.
+      const end = BigInt(await time.latest()) + GRACE + 1000n
+      await vault.setCurrentPeriodEnd(end)
+      await time.setNextBlockTimestamp(end - GRACE)
+      await expect(allocator.connect(allocatorRole).commitAllocation(period, root, cover))
+        .to.be.revertedWithCustomError(allocator, 'CommitTooCloseToPeriodEnd')
+
+      // One second earlier the grace window still fits: accepted.
+      const end2 = end + GRACE + 1000n
+      await vault.setCurrentPeriodEnd(end2)
+      await time.setNextBlockTimestamp(end2 - GRACE - 1n)
+      await allocator.connect(allocatorRole).commitAllocation(period, root, cover)
+    })
+
     it('settle reverts during grace, succeeds after', async () => {
       const ctx = await loadFixture(deployCoverOrderAllocator)
       const { allocator, vault, usdc, firstLossBufferWallet, allocatorRole, configAdmin, curator, buyer1, PERIOD_DURATION, marketIdA } = ctx
@@ -1382,6 +1426,39 @@ describe('CoverOrderAllocator / commitAllocation (merkle)', function () {
       ).to.be.revertedWithCustomError(allocator, 'GracePeriodActive').withArgs(newExpiry)
 
       await time.increaseTo(newExpiry)
+      await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover)], getProof(tree, 0))
+      expect((await allocator.getCoverOrder(0)).status).to.equal(Status.MATCHED)
+    })
+
+    it('grace updates after a commit do not move its frozen settle window', async () => {
+      const ctx = await loadFixture(deployCoverOrderAllocator)
+      const { allocator, vault, usdc, firstLossBufferWallet, allocatorRole, configAdmin, buyer1, PERIOD_DURATION, marketIdA } = ctx
+      await usdc.mint(firstLossBufferWallet.address, ethers.parseUnits('10000', 6))
+      await vault.setTotalAssets(0)
+
+      const cover = ethers.parseUnits('1000', 18)
+      const premium = prorate(cover, 500, PERIOD_DURATION)
+      await ctx.fundAndApprove(buyer1, usdc, premium)
+      await createOrder(ctx, { buyer: buyer1, token: usdc, coverAmount: cover, rate: 500, orderType: NEW })
+      await readyToMatch(ctx)
+
+      const GRACE = 3600
+      await allocator.connect(configAdmin).setSettlementGracePeriod(GRACE)
+
+      const { tree, root } = buildTree([[0n, [mca(marketIdA, cover)], premium]])
+      const tx = await allocator.connect(allocatorRole).commitAllocation(await ctx.vault.currentPeriod(), root, cover)
+      const block = await ethers.provider.getBlock(tx.blockNumber)
+      const expiresAt = block.timestamp + GRACE
+
+      // Lowering the grace afterwards does not open the published window earlier.
+      await allocator.connect(configAdmin).setSettlementGracePeriod(0)
+      await expect(
+        allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover)], getProof(tree, 0))
+      ).to.be.revertedWithCustomError(allocator, 'GracePeriodActive').withArgs(expiresAt)
+
+      // Raising it does not push the window later: settle opens at the frozen expiry.
+      await allocator.connect(configAdmin).setSettlementGracePeriod(4 * 3600)
+      await time.increaseTo(expiresAt)
       await allocator.connect(allocatorRole).settleCoverOrder(0, [mcaStruct(marketIdA, cover)], getProof(tree, 0))
       expect((await allocator.getCoverOrder(0)).status).to.equal(Status.MATCHED)
     })
