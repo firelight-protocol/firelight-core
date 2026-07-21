@@ -54,8 +54,8 @@ import {CoverNFT} from "../CoverNFT.sol";
  * ## ProtocolConcentration cap
  *
  * A market belongs to a protocolConcentration group identified by
- *   `protocolConcentrationHash = keccak256(abi.encode(protocol, chainId))`
- * Multiple markets sharing the same (protocol, chainId) share a single cap. During
+ *   `protocolConcentrationHash = keccak256(abi.encode(chainId, protocol))`
+ * Multiple markets sharing the same (chainId, protocol) share a single cap. During
  * settlement, cumulative cover per protocolConcentration group must not exceed:
  *   `protocolConcentrationBps * totalAvailableCapacity / 10000`
  *
