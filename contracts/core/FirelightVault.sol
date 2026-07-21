@@ -122,6 +122,30 @@ contract FirelightVault is
     event PayoutExecuted(address indexed to, uint256 requestedAmount, uint256 paidAmount, uint48 captureTimestamp);
     event ActiveIncidentUpdated(uint256 indexed period, bool active);
 
+    /**
+     * @notice Emitted when an address is added to the blocklist.
+     * @param account The blocklisted address.
+     */
+    event AddedToBlocklist(address indexed account);
+
+    /**
+     * @notice Emitted when an address is removed from the blocklist.
+     * @param account The address removed from the blocklist.
+     */
+    event RemovedFromBlocklist(address indexed account);
+
+    /**
+     * @notice Emitted when an address is added to the payout allowlist.
+     * @param account The allowlisted address.
+     */
+    event AddedToPayoutAllowlist(address indexed account);
+
+    /**
+     * @notice Emitted when an address is removed from the payout allowlist.
+     * @param account The address removed from the payout allowlist.
+     */
+    event RemovedFromPayoutAllowlist(address indexed account);
+
     error BlocklistedAddress();
     error NotBlocklistedAddress();
     error DepositLimitExceeded();
@@ -509,6 +533,7 @@ contract FirelightVault is
     function addToBlocklist(address account) external onlyRole(BLOCKLIST_ROLE) notBlocklisted(account) {
         if (account == address(0)) revert InvalidAddress();
         isBlocklisted[account] = true;
+        emit AddedToBlocklist(account);
     }
 
     /**
@@ -517,6 +542,7 @@ contract FirelightVault is
      */
     function removeFromBlocklist(address account) external onlyRole(BLOCKLIST_ROLE) onlyBlocklisted(account) {
         isBlocklisted[account] = false;
+        emit RemovedFromBlocklist(account);
     }
 
     /**
@@ -526,6 +552,7 @@ contract FirelightVault is
     function addToPayoutAllowlist(address account) external onlyRole(PAYOUT_ALLOWLIST_ROLE) {
         if (account == address(0)) revert InvalidAddress();
         isPayoutAllowlisted[account] = true;
+        emit AddedToPayoutAllowlist(account);
     }
 
     /**
@@ -534,6 +561,7 @@ contract FirelightVault is
      */
     function removeFromPayoutAllowlist(address account) external onlyRole(PAYOUT_ALLOWLIST_ROLE) {
         isPayoutAllowlisted[account] = false;
+        emit RemovedFromPayoutAllowlist(account);
     }
 
     /**
