@@ -145,6 +145,10 @@ contract VaultRewardDistributor is AccessControlUpgradeable {
         uint256 vaultPeriod = _vault.currentPeriod();
         $.vaultAsset.safeTransferFrom(msg.sender, address(_vault), vaultAssetAmount);
 
+        // Checkpoint atomically so historical totalAssetsAt lookups (period-start
+        // snapshots) include the forwarded assets. Requires CHECKPOINT_ROLE on the vault.
+        _vault.checkpointTotalAssets();
+
         emit RewardsDistributed(vaultPeriod, premiumToken, vaultAssetAmount, premiumTokenAmount, premiumSwapTimestamp);
     }
 
@@ -164,6 +168,10 @@ contract VaultRewardDistributor is AccessControlUpgradeable {
         IFirelightVault _vault = $.vault;
         uint256 vaultPeriod = _vault.currentPeriod();
         $.vaultAsset.safeTransferFrom(msg.sender, address(_vault), vaultAssetAmount);
+
+        // Checkpoint atomically so historical totalAssetsAt lookups (period-start
+        // snapshots) include the forwarded assets. Requires CHECKPOINT_ROLE on the vault.
+        _vault.checkpointTotalAssets();
 
         emit IncentiveDistributed(vaultPeriod, incentiveRef, vaultAssetAmount);
     }

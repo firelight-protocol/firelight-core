@@ -106,6 +106,7 @@ contract MockIncidentManagerVault is IFirelightVault {
     function PAYOUT_ALLOWLIST_ROLE() external pure override returns (bytes32) { return bytes32(0); }
     function PAYOUT_ROLE() external pure override returns (bytes32) { return bytes32(0); }
     function INCIDENT_ROLE() external pure override returns (bytes32) { return bytes32(0); }
+    function CHECKPOINT_ROLE() external pure override returns (bytes32) { return bytes32(0); }
 
     // -------------------------------------------------------------------------
     // Storage-getter stubs
@@ -183,6 +184,7 @@ contract MockIncidentManagerVault is IFirelightVault {
 
     function updateDepositLimit(uint256) external override {}
     function addPeriodConfiguration(uint48, uint48) external override {}
+    function checkpointTotalAssets() external override {}
 
     // -------------------------------------------------------------------------
     // Blocklist stubs

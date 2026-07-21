@@ -33,6 +33,9 @@ abstract contract FirelightVaultStorage {
     /// @notice Role allowed to update active incident flags used by deposit checks.
     bytes32 public constant INCIDENT_ROLE = keccak256("INCIDENT_ROLE");
 
+    /// @notice Role allowed to record total-assets checkpoints outside deposit/withdraw flows.
+    bytes32 public constant CHECKPOINT_ROLE = keccak256("CHECKPOINT_ROLE");
+
     /// @notice Minimum period duration in seconds.
     uint48 public constant SMALLEST_PERIOD_DURATION = 1 days;
 

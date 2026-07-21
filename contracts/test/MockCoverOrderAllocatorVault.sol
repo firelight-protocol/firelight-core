@@ -126,6 +126,7 @@ contract MockCoverOrderAllocatorVault is IFirelightVault {
     function PAYOUT_ALLOWLIST_ROLE() external pure override returns (bytes32) { return bytes32(0); }
     function PAYOUT_ROLE() external pure override returns (bytes32) { return bytes32(0); }
     function INCIDENT_ROLE() external pure override returns (bytes32) { return bytes32(0); }
+    function CHECKPOINT_ROLE() external pure override returns (bytes32) { return bytes32(0); }
 
     // -------------------------------------------------------------------------
     // Storage-getter stubs
@@ -216,6 +217,7 @@ contract MockCoverOrderAllocatorVault is IFirelightVault {
 
     function hasActiveIncident(uint256) external pure override returns (bool) { return false; }
     function setActiveIncident(uint256, bool) external override {}
+    function checkpointTotalAssets() external override {}
 
     // -------------------------------------------------------------------------
     // Admin / configuration stubs

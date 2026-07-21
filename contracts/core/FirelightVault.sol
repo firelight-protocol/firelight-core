@@ -146,6 +146,12 @@ contract FirelightVault is
      */
     event RemovedFromPayoutAllowlist(address indexed account);
 
+    /**
+     * @notice Emitted when a total-assets checkpoint is recorded outside deposit/withdraw flows.
+     * @param totalAssets The total assets recorded, excluding assets pending withdrawal.
+     */
+    event TotalAssetsCheckpointed(uint256 totalAssets);
+
     error BlocklistedAddress();
     error NotBlocklistedAddress();
     error DepositLimitExceeded();
@@ -503,6 +509,20 @@ contract FirelightVault is
     function setActiveIncident(uint256 period, bool active) external onlyRole(INCIDENT_ROLE) {
         hasActiveIncident[period] = active;
         emit ActiveIncidentUpdated(period, active);
+    }
+
+    /**
+     * @notice Records a checkpoint of the current total assets. Requires CHECKPOINT_ROLE.
+     * @dev Assets forwarded directly to the vault (e.g. reward distribution) do not trigger
+     * the deposit/withdraw checkpoints, so historical `totalAssetsAt` lookups would miss them
+     * until the next flow. The reward distributor calls this atomically after forwarding so
+     * period-start snapshots include the forwarded assets. Restricted to a role because
+     * checkpoint growth on a low-fee chain would otherwise be spammable.
+     */
+    function checkpointTotalAssets() external onlyRole(CHECKPOINT_ROLE) {
+        uint256 assets = totalAssets();
+        _traceTotalAssets.push(Time.timestamp(), assets);
+        emit TotalAssetsCheckpointed(assets);
     }
 
     /**
