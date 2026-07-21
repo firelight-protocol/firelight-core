@@ -58,6 +58,16 @@ async function withSubmittedRound(ctx, opts = {}) {
 
 describe('IncidentManager', function () {
   describe('initialization', () => {
+    it('emits the initial payout receiver', async () => {
+      const ctx = await loadFixture(deployIncidentManager)
+      const Factory = await ethers.getContractFactory('IncidentManager')
+      const incidentManager = await upgrades.deployProxy(Factory, [], { kind: 'transparent', initializer: false })
+
+      await expect(incidentManager.initialize(...initArgs(ctx)))
+        .to.emit(incidentManager, 'PayoutReceiverUpdated')
+        .withArgs(ethers.ZeroAddress, ctx.payoutReceiver.address)
+    })
+
     it('stores wired dependencies', async () => {
       const { incidentManager, coverOrderAllocator, vault, payoutReceiver, priceFeed, maxPriceAge } = await loadFixture(deployIncidentManager)
       expect(await incidentManager.coverOrderAllocator()).to.equal(coverOrderAllocator.target)
