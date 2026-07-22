@@ -82,7 +82,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
     uint256 private constant MAX_LEVERAGE_FACTOR = 5;
     // Keep governance-set CAR targets within the risk policy's approved operating range.
     uint256 private constant MIN_CAR_BPS = 12_000;
-    uint256 private constant MAX_MIN_CAR_BPS = 50_000;
+    uint256 private constant MAX_CAR_BPS = 50_000;
     // Hard ceiling for `settlementGracePeriod`. Keeps the grace from consuming the settle
     // window: settlement requires the grace elapsed AND the order's period still current.
     // The vault enforces every period duration to be a multiple of SMALLEST_PERIOD_DURATION
@@ -659,7 +659,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
     }
 
     function _setCapacityConfig(CapacityConfig calldata config) internal {
-        if (config.minCAR < MIN_CAR_BPS || config.minCAR > MAX_MIN_CAR_BPS) revert InvalidMinCAR();
+        if (config.minCAR < MIN_CAR_BPS || config.minCAR > MAX_CAR_BPS) revert InvalidMinCAR();
         _requireNonZero(address(config.firstLossBufferToken));
         _requireNonZero(config.firstLossBuffer);
         if (config.effectiveLeverage == 0 || config.effectiveLeverage > MAX_LEVERAGE_FACTOR * config.minCAR)
