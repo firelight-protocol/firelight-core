@@ -173,10 +173,14 @@ contract FirelightVault is
     error CurrentPeriodHasActiveIncident();
 
     modifier notBlocklisted(address account) {
+        _requireNotBlocklisted(account);
+        _;
+    }
+
+    function _requireNotBlocklisted(address account) private view {
         if (isBlocklisted[account]) {
             revert BlocklistedAddress();
         }
-        _;
     }
 
     modifier onlyBlocklisted(address account) {
@@ -893,7 +897,7 @@ contract FirelightVault is
         if (!isPayoutAllowlisted[to]) revert AccountNotAllowlisted();
         if (amount == 0) revert InvalidAmount();
 
-        uint256 capturePeriod = periodAtTimestamp(captureTimestamp);
+        (uint256 capturePeriod, uint48 capturePeriodStart) = _periodAndStartAt(captureTimestamp);
         uint256 _currentPeriod = currentPeriod();
 
         // Payout can execute during the incident period or the following period.
@@ -904,7 +908,6 @@ contract FirelightVault is
 
         // Cap by the active assets committed at the start of the covered period.
         // This is an exposure cap, not a segregated asset bucket.
-        uint48 capturePeriodStart = _periodStart(capturePeriod);
         uint256 assetsAtCapturePeriod = totalAssetsAt(capturePeriodStart);
         uint256 currentActiveAssets = totalAssets();
 
@@ -1114,9 +1117,14 @@ contract FirelightVault is
         return hasActiveIncident[period] || (period > 0 && hasActiveIncident[period - 1]);
     }
 
-    function _periodStart(uint256 period) internal view returns (uint48) {
-        PeriodConfiguration memory pc = periodConfigurationAtNumber(period);
-        return pc.epoch + uint48(period - pc.startingPeriod) * pc.duration;
+    /// @dev Resolves a timestamp's period number and period start from a single scan of the
+    ///      configuration history: the configuration governing the timestamp also governs
+    ///      its period, so both derive from one lookup.
+    function _periodAndStartAt(uint48 timestamp) internal view returns (uint256 period, uint48 start) {
+        PeriodConfiguration memory pc = periodConfigurationAtTimestamp(timestamp);
+        uint48 periodsSinceEpoch = _timestampSinceEpoch(timestamp, pc.epoch) / pc.duration;
+        period = pc.startingPeriod + periodsSinceEpoch;
+        start = pc.epoch + periodsSinceEpoch * pc.duration;
     }
 
     function _isPeriodInPayoutWindow(uint256 period, uint256 current) internal pure returns (bool) {
