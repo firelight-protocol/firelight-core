@@ -4,7 +4,8 @@ const { expect } = require('chai')
 
 describe('Donations test', function() {
   const DECIMALS = 6,
-        DEPOSIT_AMOUNT = ethers.parseUnits('5000', DECIMALS)
+        DEPOSIT_AMOUNT = ethers.parseUnits('5000', DECIMALS),
+        DONATION = ethers.parseUnits('10', DECIMALS)
 
   let attacker
 
@@ -23,30 +24,30 @@ describe('Donations test', function() {
 
   it('does not allow an attacker to profit by performing a donation', async () => {
     // Attacker makes a donation when the vault is empty
-    await token_contract.connect(attacker).transfer(firelight_vault.target, ethers.parseUnits('10', DECIMALS))
+    await token_contract.connect(attacker).transfer(firelight_vault.target, DONATION)
 
-    // A user makes a deposit equal or less than donation
-    await firelight_vault.connect(users[1]).deposit(ethers.parseUnits('10', DECIMALS), users[1].address)
+    // A deposit equal or less than the donation would floor to zero shares:
+    // it reverts instead of pulling the depositor's assets for nothing
+    const dust_deposit = firelight_vault.connect(users[1]).deposit(DONATION, users[1].address)
+    await expect(dust_deposit).to.be.revertedWithCustomError(firelight_vault, 'InvalidAmount')
 
+    // The depositor kept their tokens and the attacker gained no claim on the vault
+    expect(await token_contract.balanceOf(users[1].address)).to.be.eq(DEPOSIT_AMOUNT)
     expect(await firelight_vault.balanceOf(attacker.address)).to.be.eq(0)
     expect(await firelight_vault.maxWithdraw(attacker.address)).to.be.eq(0)
     expect(await firelight_vault.maxRedeem(attacker.address)).to.be.eq(0)
 
     const withdraw_request = firelight_vault.connect(attacker).withdraw(1, attacker.address, attacker.address)
-
     await expect(withdraw_request).to.be.revertedWithCustomError(firelight_vault, 'InsufficientShares')
   })
 
-  it('should allow the depositor to withdraw', async () => {
-    // NOTE: This problem will be mitigated by making a deposit to the vault during deployment
- 
-    // The depositor lost its tokens
-    expect(await firelight_vault.balanceOf(users[1].address)).to.be.eq(0)
-    expect(await firelight_vault.maxWithdraw(users[1].address)).to.be.eq(0)
-    expect(await firelight_vault.maxRedeem(users[1].address)).to.be.eq(0)
+  it('a deposit large enough to mint shares succeeds and absorbs the donation', async () => {
+    await firelight_vault.connect(users[1]).deposit(DEPOSIT_AMOUNT, users[1].address)
 
-    // The depositor cannot withdraw 1 wei
-    const withdraw_request = firelight_vault.connect(users[1]).withdraw(1, users[1].address, users[1].address)
-    expect(withdraw_request).to.be.revertedWithCustomError(firelight_vault, 'InsufficientShares')
+    const shares = await firelight_vault.balanceOf(users[1].address)
+    expect(shares).to.be.gt(0)
+    // The donation inflates the share price, so floor rounding can cost the depositor
+    // up to one share's value (≈ the donation) — but never more.
+    expect(await firelight_vault.maxWithdraw(users[1].address)).to.be.gte(DEPOSIT_AMOUNT - DONATION)
   })
 })

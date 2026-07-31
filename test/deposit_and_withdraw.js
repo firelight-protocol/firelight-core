@@ -167,3 +167,36 @@ describe('Deposit and Withdraw test', function() {
     expect(max_mint).to.be.equal(0n)
   })
 })
+describe('Zero-share deposit guard', function() {
+  const DECIMALS = 6
+  const DEPOSIT = ethers.parseUnits('100', DECIMALS)
+  const DONATION = ethers.parseUnits('50', DECIMALS)
+
+  const inflatedPriceFixture = async () => {
+    const ctx = await deployVault()
+    await ctx.utils.mintAndApprove(DEPOSIT, ctx.users[0])
+    await ctx.firelight_vault.connect(ctx.users[0]).deposit(DEPOSIT, ctx.users[0].address)
+    // Donate assets directly so the share price rises above 1:1
+    await ctx.token_contract.mintTo(ctx.firelight_vault.target, DONATION)
+    await ctx.utils.mintAndApprove(ethers.parseUnits('1', DECIMALS), ctx.users[1])
+    return ctx
+  }
+
+  it('reverts a dust deposit that would floor to zero shares', async () => {
+    const { firelight_vault, users } = await loadFixture(inflatedPriceFixture)
+
+    expect(await firelight_vault.previewDeposit(1n)).to.equal(0n)
+    await expect(firelight_vault.connect(users[1]).deposit(1n, users[1].address))
+      .to.be.revertedWithCustomError(firelight_vault, 'InvalidAmount')
+  })
+
+  it('still accepts the smallest deposit that mints at least one share', async () => {
+    const { firelight_vault, users } = await loadFixture(inflatedPriceFixture)
+
+    const twoShareDeposit = 2n // 2 wei at share price 1.5 → 1 share
+    expect(await firelight_vault.previewDeposit(twoShareDeposit)).to.equal(1n)
+    await expect(firelight_vault.connect(users[1]).deposit(twoShareDeposit, users[1].address))
+      .to.emit(firelight_vault, 'Deposit')
+    expect(await firelight_vault.balanceOf(users[1].address)).to.equal(1n)
+  })
+})

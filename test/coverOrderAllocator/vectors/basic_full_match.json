@@ -7,7 +7,7 @@
       "periodDuration": 2592000
     },
     "capacityConfig": {
-      "minCAR": 10000,
+      "minCAR": 12000,
       "firstLossBufferBalance": "10000000000"
     },
     "premiumTokens": [
@@ -32,7 +32,7 @@
     ]
   },
   "matchingParams": {
-    "effectiveLeverage": 20000,
+    "effectiveLeverage": 24000,
     "assetPriceUSD": "1000000000000000000"
   },
   "orders": [

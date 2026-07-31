@@ -88,6 +88,21 @@ interface IFirelightVault is IERC4626, IAccessControl {
     /// @notice Emitted when a `RESCUER_ROLE` holder rescues pending withdrawals from a blocklisted address.
     event WithdrawRescuedFromBlocklisted(address from, address to, uint256[] periods, uint256[] rescuedShares);
 
+    /// @notice Emitted when an address is added to the blocklist.
+    event AddedToBlocklist(address indexed account);
+
+    /// @notice Emitted when an address is removed from the blocklist.
+    event RemovedFromBlocklist(address indexed account);
+
+    /// @notice Emitted when an address is added to the payout allowlist.
+    event AddedToPayoutAllowlist(address indexed account);
+
+    /// @notice Emitted when an address is removed from the payout allowlist.
+    event RemovedFromPayoutAllowlist(address indexed account);
+
+    /// @notice Emitted when a total-assets checkpoint is recorded outside deposit/withdraw flows.
+    event TotalAssetsCheckpointed(uint256 totalAssets);
+
     // -------------------------------------------------------------------------
     // Errors
     // -------------------------------------------------------------------------
@@ -126,6 +141,8 @@ interface IFirelightVault is IERC4626, IAccessControl {
     function PAYOUT_ROLE() external view returns (bytes32);
 
     function INCIDENT_ROLE() external view returns (bytes32);
+
+    function CHECKPOINT_ROLE() external view returns (bytes32);
 
     function PERIOD_CONFIGURATION_UPDATE_ROLE() external view returns (bytes32);
 
@@ -235,6 +252,13 @@ interface IFirelightVault is IERC4626, IAccessControl {
     function updateDepositLimit(uint256 newLimit) external;
 
     function addPeriodConfiguration(uint48 epoch, uint48 duration) external;
+
+    /**
+     * @notice Records a checkpoint of the current total assets. Requires `CHECKPOINT_ROLE`.
+     * @dev Called by the reward distributor after forwarding assets so historical
+     * `totalAssetsAt` lookups include them.
+     */
+    function checkpointTotalAssets() external;
 
     // -------------------------------------------------------------------------
     // Blocklist

@@ -1,5 +1,5 @@
 const { loadFixture } = require('@nomicfoundation/hardhat-network-helpers')
-const { deployCoverOrderAllocator, computeMarketId } = require('../setup/fixtures.js')
+const { deployCoverOrderAllocator, computeMarketId, computeProtocolConcentrationHash } = require('../setup/fixtures.js')
 const { expect } = require('chai')
 const { ethers } = require('hardhat')
 
@@ -70,6 +70,15 @@ describe('CoverOrderAllocator / admin + market management', function () {
   })
 
   describe('setCapacityConfig', () => {
+    it('accepts minCAR up to 5x and rejects values above it', async () => {
+      const { allocator, configAdmin, capacityConfig } = await loadFixture(deployCoverOrderAllocator)
+
+      await expect(allocator.connect(configAdmin).setCapacityConfig({ ...capacityConfig, minCAR: 50000 }))
+        .to.emit(allocator, 'CapacityConfigUpdated')
+      await expect(allocator.connect(configAdmin).setCapacityConfig({ ...capacityConfig, minCAR: 50001 }))
+        .to.be.revertedWithCustomError(allocator, 'InvalidMinCAR')
+    })
+
     it('only admin + validation + emits', async () => {
       const { allocator, configAdmin, buyer1, firstLossBufferWallet, usdc } = await loadFixture(deployCoverOrderAllocator)
       const ok = {
@@ -84,7 +93,18 @@ describe('CoverOrderAllocator / admin + market management', function () {
         .to.be.revertedWithCustomError(allocator, 'AccessControlUnauthorizedAccount')
       await expect(allocator.connect(configAdmin).setCapacityConfig({ ...ok, effectiveLeverage: 0 }))
         .to.be.revertedWithCustomError(allocator, 'InvalidLeverage')
-      await expect(allocator.connect(configAdmin).setCapacityConfig({ ...ok, minCAR: 9999 }))
+      // Leverage above MAX_LEVERAGE_FACTOR × minCAR (here 5 × 12000) is rejected; the boundary passes.
+      await expect(allocator.connect(configAdmin).setCapacityConfig({ ...ok, effectiveLeverage: 60001 }))
+        .to.be.revertedWithCustomError(allocator, 'InvalidLeverage')
+      await expect(allocator.connect(configAdmin).setCapacityConfig({ ...ok, effectiveLeverage: 60000 }))
+        .to.emit(allocator, 'CapacityConfigUpdated')
+      // The cap is relative: the same leverage that fails at minCAR=12000 passes at minCAR=14000.
+      await expect(allocator.connect(configAdmin).setCapacityConfig({ ...ok, minCAR: 12000, effectiveLeverage: 70000 }))
+        .to.be.revertedWithCustomError(allocator, 'InvalidLeverage')
+      await expect(allocator.connect(configAdmin).setCapacityConfig({ ...ok, minCAR: 14000, effectiveLeverage: 70000 }))
+        .to.emit(allocator, 'CapacityConfigUpdated')
+      // minCAR floor is MIN_CAR_BPS (1.2x): just below reverts, the exact floor is `ok` itself.
+      await expect(allocator.connect(configAdmin).setCapacityConfig({ ...ok, minCAR: 11999 }))
         .to.be.revertedWithCustomError(allocator, 'InvalidMinCAR')
       await expect(allocator.connect(configAdmin).setCapacityConfig({ ...ok, firstLossBufferToken: ethers.ZeroAddress }))
         .to.be.revertedWithCustomError(allocator, 'InvalidZeroAddress')
@@ -215,7 +235,7 @@ describe('CoverOrderAllocator / admin + market management', function () {
       const expectedId = computeMarketId(42, 'NewProtocol', mb)
       const m = await allocator.getSupportedMarket(expectedId)
       expect(m.chainId).to.equal(42)
-      const concHash = await allocator.getProtocolConcentrationHash(m.chainId, m.protocol)
+      const concHash = computeProtocolConcentrationHash(m.chainId, m.protocol)
       expect(await allocator.getEffectiveProtocolConcentration(concHash)).to.equal(0)
     })
 
@@ -303,7 +323,7 @@ describe('CoverOrderAllocator / admin + market management', function () {
 
     it('settleCoverOrder / batchSettleCoverOrder require ALLOCATOR_ROLE', async () => {
       const { allocator, buyer1 } = await loadFixture(deployCoverOrderAllocator)
-      await expect(allocator.connect(buyer1).settleCoverOrder(0, [], 0, []))
+      await expect(allocator.connect(buyer1).settleCoverOrder(0, [], []))
         .to.be.revertedWithCustomError(allocator, 'AccessControlUnauthorizedAccount')
       await expect(allocator.connect(buyer1).batchSettleCoverOrder([]))
         .to.be.revertedWithCustomError(allocator, 'AccessControlUnauthorizedAccount')
@@ -333,17 +353,6 @@ describe('CoverOrderAllocator / admin + market management', function () {
       expect(await allocator.getEffectiveProtocolConcentration(concHashMorpho)).to.equal(4000)
       expect(await allocator.getEffectiveProtocolConcentration(concHashAave)).to.equal(4000)
       expect(await allocator.getEffectiveProtocolConcentration(compoundHash)).to.equal(4000)
-    })
-
-    it('getProtocolConcentrationHash is pure helper matching on-chain derivation', async () => {
-      const { allocator, computeProtocolConcentrationHash } = await loadFixture(deployCoverOrderAllocator)
-      expect(await allocator.getProtocolConcentrationHash(1, 'Morpho')).to.equal(computeProtocolConcentrationHash(1, 'Morpho'))
-    })
-
-    it('getMarketId is pure helper matching on-chain derivation', async () => {
-      const { allocator, marketIdA, constants } = await loadFixture(deployCoverOrderAllocator)
-      // marketIdA is computed off-chain by the fixture using the same formula the contract uses.
-      expect(await allocator.getMarketId(1, constants.PROTOCOL_MORPHO, constants.MARKET_A)).to.equal(marketIdA)
     })
 
     it('coverNFT() returns the address set in initialize', async () => {

@@ -148,7 +148,6 @@ contract IncidentManager is IIncidentManager, AccessControlUpgradeable, Reentran
             assessmentApprover == address(0) ||
             assessmentRejecter == address(0) ||
             incidentInvalidator == address(0) ||
-            _payoutReceiver == address(0) ||
             address(_coverOrderAllocator) == address(0)
         ) {
             revert InvalidZeroAddress();
@@ -159,8 +158,8 @@ contract IncidentManager is IIncidentManager, AccessControlUpgradeable, Reentran
 
         IncidentManagerStorage storage $ = _getStorage();
         $.coverOrderAllocator = _coverOrderAllocator;
+        _setPayoutReceiver(_payoutReceiver);
         $.vault = _coverOrderAllocator.vault();
-        $.payoutReceiver = _payoutReceiver;
         $.nextIncidentId = 1;
         $.vaultAssetDecimals = IERC20Metadata($.vault.asset()).decimals();
         $.canonicalDecimals = _coverOrderAllocator.CANONICAL_DECIMALS();
@@ -473,14 +472,7 @@ contract IncidentManager is IIncidentManager, AccessControlUpgradeable, Reentran
 
     /// @inheritdoc IIncidentManager
     function setPayoutReceiver(address newPayoutReceiver) external onlyRole(PAYOUT_ADMIN_ROLE) {
-        if (newPayoutReceiver == address(0)) revert InvalidZeroAddress();
-
-        IncidentManagerStorage storage $ = _getStorage();
-        address oldPayoutReceiver = $.payoutReceiver;
-        if (oldPayoutReceiver == newPayoutReceiver) return;
-        $.payoutReceiver = newPayoutReceiver;
-
-        emit PayoutReceiverUpdated(oldPayoutReceiver, newPayoutReceiver);
+        _setPayoutReceiver(newPayoutReceiver);
     }
 
     /// @inheritdoc IIncidentManager
@@ -745,6 +737,17 @@ contract IncidentManager is IIncidentManager, AccessControlUpgradeable, Reentran
         }
 
         assessmentRound.status = newStatus;
+    }
+
+    function _setPayoutReceiver(address newPayoutReceiver) internal {
+        if (newPayoutReceiver == address(0)) revert InvalidZeroAddress();
+
+        IncidentManagerStorage storage $ = _getStorage();
+        address oldPayoutReceiver = $.payoutReceiver;
+        if (oldPayoutReceiver == newPayoutReceiver) return;
+        $.payoutReceiver = newPayoutReceiver;
+
+        emit PayoutReceiverUpdated(oldPayoutReceiver, newPayoutReceiver);
     }
 
     function _setMaxPriceAge(uint48 newMaxPriceAge) internal {

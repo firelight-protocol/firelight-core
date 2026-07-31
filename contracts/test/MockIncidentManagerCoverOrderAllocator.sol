@@ -84,7 +84,7 @@ contract MockIncidentManagerCoverOrderAllocator is ICoverOrderAllocator {
         return 0;
     }
 
-    function commitAllocation(uint256, bytes32, uint256) external pure override {}
+    function commitAllocation(uint256, bytes32, uint256, uint256) external pure override {}
     function setPriceFeedAdapter(IAggregatorV3) external pure override {}
     function setMaxPriceAge(uint48) external pure override {}
     function setSettlementGracePeriod(uint48) external pure override {}
@@ -92,11 +92,12 @@ contract MockIncidentManagerCoverOrderAllocator is ICoverOrderAllocator {
     function maxPriceAge() external pure override returns (uint48) { return 0; }
     function settlementGracePeriod() external pure override returns (uint48) { return 0; }
     function priceFeedDecimals() external pure override returns (uint8) { return 0; }
-    function settleCoverOrder(uint256, MarketCoverAllocation[] calldata, uint256, bytes32[] calldata) external pure override {}
+    function settleCoverOrder(uint256, MarketCoverAllocation[] calldata, bytes32[] calldata) external pure override {}
     function batchSettleCoverOrder(SettleParams[] calldata) external pure override {}
     function cancelCoverOrder(uint256) external pure override {}
     function cancelExpiredOrders(uint256[] calldata) external pure override {}
-    function recommitAllocation(uint256, bytes32, uint256) external pure override {}
+    function recommitAllocation(uint256, bytes32, uint256, uint256) external pure override {}
+    function cancelCommitAllocation(uint256) external pure override {}
 
     function setPremiumCollector(address) external pure override {}
     function addSupportedPremiumToken(address) external pure override {}
@@ -146,12 +147,6 @@ contract MockIncidentManagerCoverOrderAllocator is ICoverOrderAllocator {
     }
     function getSupportedProtocolConcentrationHashes() external pure override returns (bytes32[] memory h) {
         return h;
-    }
-    function getProtocolConcentrationHash(uint64, string calldata) external pure override returns (bytes32) {
-        return bytes32(0);
-    }
-    function getMarketId(uint64, string calldata, bytes32) external pure override returns (bytes32) {
-        return bytes32(0);
     }
     function getProtocolConcentrationFromHash(bytes32) external pure override returns (ProtocolConcentration memory c) {
         return c;

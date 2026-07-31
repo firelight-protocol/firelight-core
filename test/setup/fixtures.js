@@ -10,7 +10,7 @@ const DEFAULT_CONFIG = {
 }
 
 const deployVault = async (config = {}) => {
-  config = Object.assign(DEFAULT_CONFIG, config)
+  config = Object.assign({}, DEFAULT_CONFIG, config)
   const abi_coder = ethers.AbiCoder.defaultAbiCoder()
   let token_contract, firelight_vault
 
@@ -162,10 +162,10 @@ const deployCoverOrderAllocator = async (config = {}) => {
   ]
 
   const capacityConfig = {
-    minCAR: 10000,       // 1.0x (relaxed; individual tests re-set when needed)
+    minCAR: 12000,       // 1.2x (the contract's MIN_CAR_BPS floor)
     firstLossBufferToken: await usdc.getAddress(),
     firstLossBuffer: firstLossBufferWallet.address,
-    effectiveLeverage: 20000,  // 2.0x
+    effectiveLeverage: 24000,  // keeps the capacity multiplier at 2.0x (24000/12000)
     minOrderMarketCoverAmount: 1,
     divergenceToleranceBps: 0
   }

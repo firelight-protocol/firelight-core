@@ -21,7 +21,7 @@ import {CoverNFT} from "../CoverNFT.sol";
  * happens only at the boundaries:
  *
  *   - Off-chain: callers MUST normalize inputs (e.g. `MarketAllocationInput.coverAmount`,
- *     merkle leaf `allocatedCover` and `allocatedPremium`, `commitAllocation` totalAllocated)
+ *     merkle leaf `allocatedCover`, `commitAllocation` totalAllocated)
  *     from native decimals to canonical decimals before submitting.
  *   - On-chain transfers: premium `safeTransferFrom`, first-loss-buffer transfer, and
  *     `vault.payout()` are denormalized from canonical decimals back to each token's native
@@ -39,21 +39,23 @@ import {CoverNFT} from "../CoverNFT.sol";
  *   3. Read protocolConcentration caps via `getSupportedProtocolConcentrationHashes()` + `getEffectiveProtocolConcentration(hash)
  *   4. Compute capacity: `(config.firstLossBufferToken.balanceOf(config.firstLossBuffer)
  *      + vault.totalAssets() * assetPriceUSD / 10**priceFeedDecimals) * config.effectiveLeverage / config.minCAR`
- *   5. Run the matching algorithm → produces per-order `allocatedCoverPerMarket[]` + `allocatedPremium`
- *   6. Build a StandardMerkleTree with leaves: `(uint256 orderId, (bytes32,uint256)[] marketCoverAllocations, uint256 allocatedPremium)`
- *   7. Call `commitAllocation(commitmentPeriod, merkleRoot, totalAllocated)` to commit
+ *   5. Run the matching algorithm → produces per-order `allocatedCoverPerMarket[]`
+ *   6. Build a StandardMerkleTree with leaves: `(uint256 orderId, (bytes32,uint256)[] marketCoverAllocations)`
+ *      (premiums are recomputed on-chain at settlement, pro-rata from each order's stored terms)
+ *   7. Call `commitAllocation(commitmentPeriod, merkleRoot, totalAllocated, matchingCapacity)`
+ *      to commit, where `matchingCapacity` is the capacity of step 4 the matching ran against
  *   8. Call `batchSettleCoverOrder(params)` or `settleCoverOrder(...)` for each order with its Merkle proof
  *
  * ## Leaf encoding
  *
  * Double-hash per OpenZeppelin standard:
- *   `keccak256(bytes.concat(keccak256(abi.encode(orderId, marketCoverAllocations, allocatedPremium))))`
+ *   `keccak256(bytes.concat(keccak256(abi.encode(orderId, marketCoverAllocations))))`
  *
  * ## ProtocolConcentration cap
  *
  * A market belongs to a protocolConcentration group identified by
- *   `protocolConcentrationHash = keccak256(abi.encode(protocol, chainId))`
- * Multiple markets sharing the same (protocol, chainId) share a single cap. During
+ *   `protocolConcentrationHash = keccak256(abi.encode(chainId, protocol))`
+ * Multiple markets sharing the same (chainId, protocol) share a single cap. During
  * settlement, cumulative cover per protocolConcentration group must not exceed:
  *   `protocolConcentrationBps * totalAvailableCapacity / 10000`
  *
@@ -148,7 +150,10 @@ interface ICoverOrderAllocator {
 
     /// @notice Full cover order record.
     struct CoverOrder {
+        // Slot: buyer (20) + orderType (1) + status (1).
         address buyer;
+        CoverOrderType orderType;
+        CoverOrderStatus status;
         address payoutRecipient;
         /// Off-chain beneficiary reference.
         string beneficiaryAddress;
@@ -159,8 +164,6 @@ interface ICoverOrderAllocator {
         uint256 totalPremiumAmount;
         /// Cover-amount-weighted average annual rate, in bps.
         uint256 weightedAvgRate;
-        CoverOrderType orderType;
-        CoverOrderStatus status;
         /// Total cover allocated on settle, in canonical USD.
         uint256 allocatedCoverAmount;
         /// Premium charged for the allocated cover, in canonical USD.
@@ -171,13 +174,14 @@ interface ICoverOrderAllocator {
 
     /// @notice Per-period capacity configuration (checkpointed; effective at currentPeriod() + 1).
     struct CapacityConfig {
-        /// Minimum capital adequacy ratio, in bps (>= BPS_DENOMINATOR).
+        /// Minimum capital adequacy ratio, in bps (1.2x to 5x, inclusive).
         uint256 minCAR;
         /// ERC20 (decimals ≤ CANONICAL_DECIMALS) used as first-loss-buffer collateral.
         IERC20 firstLossBufferToken;
         /// Custody wallet holding the first-loss-buffer balance.
         address firstLossBuffer;
-        /// Leverage applied to collateral when computing capacity, in bps.
+        /// Leverage applied to collateral when computing capacity, in bps
+        /// (> 0, <= MAX_LEVERAGE_FACTOR * minCAR).
         uint256 effectiveLeverage;
         /// Minimum per-market cover amount allowed on an order, in canonical USD.
         uint256 minOrderMarketCoverAmount;
@@ -198,8 +202,10 @@ interface ICoverOrderAllocator {
         uint256 totalSettledCover;
         /// Cumulative premium settled so far, in canonical USD.
         uint256 totalSettledPremium;
-        /// Timestamp of the most recent commit (initial or recommit); drives the grace gate.
-        uint48 committedAt;
+        /// Timestamp at which the grace elapses and settlement can begin. Frozen at
+        /// commit/recommit time from the then-current `settlementGracePeriod`; later
+        /// grace updates never alter an already-published window.
+        uint48 graceExpiresAt;
     }
 
     /// @notice Per-market allocation encoded in a settlement leaf and passed to settle.
@@ -213,8 +219,6 @@ interface ICoverOrderAllocator {
     struct SettleParams {
         uint256 orderId;
         MarketCoverAllocation[] marketCoverAllocations;
-        /// Premium charged for the allocated cover, in canonical USD.
-        uint256 allocatedPremium;
         /// Merkle proof of the order's leaf against the period commitment root.
         bytes32[] proof;
     }
@@ -282,6 +286,13 @@ interface ICoverOrderAllocator {
     );
 
     /**
+     * @notice Emitted when a period's allocation commitment is cancelled before any settlement.
+     * @param period Period whose commitment was cancelled.
+     * @param merkleRoot Root of the cancelled commitment.
+     */
+    event AllocationCommitmentCancelled(uint256 indexed period, bytes32 merkleRoot);
+
+    /**
      * @notice Emitted when the premium collector address changes.
      * @param oldCollector Previous premium collector.
      * @param newCollector New premium collector.
@@ -311,7 +322,11 @@ interface ICoverOrderAllocator {
      * @param oldShareBps Previous cap, in bps.
      * @param newShareBps New cap, in bps, effective at currentPeriod() + 1.
      */
-    event ProtocolConcentrationUpdated(bytes32 indexed protocolConcentrationHash, uint256 oldShareBps, uint256 newShareBps);
+    event ProtocolConcentrationUpdated(
+        bytes32 indexed protocolConcentrationHash,
+        uint256 oldShareBps,
+        uint256 newShareBps
+    );
 
     /**
      * @notice Emitted when a premium token is whitelisted.
@@ -386,6 +401,9 @@ interface ICoverOrderAllocator {
     error OrderNotPending();
     /// @notice Thrown when committing to a period that already has a commitment.
     error PeriodAlreadyCommitted();
+    /// @notice Thrown when a commit or recommit is so late in the period that its grace window
+    ///         would reach the period end, leaving no instant at which settlement is possible.
+    error CommitTooCloseToPeriodEnd();
     /// @notice Thrown when the commit/recommit period is not the current vault period.
     /// @param commitmentPeriod Period the caller passed.
     /// @param currentPeriod Current vault period at execution.
@@ -396,6 +414,11 @@ interface ICoverOrderAllocator {
     /// @param allocation Requested allocation, in canonical USD.
     /// @param capacity Effective capacity ceiling, in canonical USD.
     error TotalAllocationOverflow(uint256 allocation, uint256 capacity);
+    /// @notice Thrown when the caller's matching capacity exceeds the live capacity
+    ///         widened by the period's divergence tolerance.
+    /// @param matchingCapacity Capacity the matcher ran against, in canonical USD.
+    /// @param maxCapacity Live capacity ceiling (incl. tolerance), in canonical USD.
+    error MatchingCapacityOverflow(uint256 matchingCapacity, uint256 maxCapacity);
     /// @notice Thrown when a market's allocated cover exceeds its requested cover.
     /// @param allocation Allocated cover, in canonical USD.
     /// @param capacity Requested cover for that market, in canonical USD.
@@ -404,14 +427,6 @@ interface ICoverOrderAllocator {
     /// @param allocation Cumulative cover for the group, in canonical USD.
     /// @param capacity Group cap, in canonical USD.
     error ProtocolConcentrationOverflow(uint256 allocation, uint256 capacity);
-    /// @notice Thrown when an order's allocated premium exceeds the premium it owes.
-    /// @param allocation Allocated premium, in canonical USD.
-    /// @param capacity Premium owed by the order, in canonical USD.
-    error PremiumAllocationOverflow(uint256 allocation, uint256 capacity);
-    /// @notice Thrown when the leaf premium does not match the expected premium.
-    /// @param leafPremium Premium encoded in the Merkle leaf.
-    /// @param expectedPremium Premium computed on-chain.
-    error PremiumMismatch(uint256 leafPremium, uint256 expectedPremium);
     /// @notice Thrown when cumulative settled cover exceeds the declared allocation.
     /// @param allocation Cumulative settled cover, in canonical USD.
     /// @param capacity Declared allocation, in canonical USD.
@@ -443,7 +458,7 @@ interface ICoverOrderAllocator {
     error InvalidZeroAddress();
     /// @notice Thrown when the configured leverage is zero.
     error InvalidLeverage();
-    /// @notice Thrown when the configured minimum CAR is below 100% (BPS_DENOMINATOR).
+    /// @notice Thrown when the configured minimum CAR is outside the supported 1.2x to 5x range.
     error InvalidMinCAR();
     /// @notice Thrown when the configured maximum price age is zero.
     error InvalidMaxPriceAge();
@@ -457,6 +472,11 @@ interface ICoverOrderAllocator {
     /// @notice Thrown when the configured divergence tolerance exceeds the hard ceiling.
     /// @param bps Provided tolerance, in bps.
     error InvalidDivergenceTolerance(uint16 bps);
+    /// @notice Thrown when the settlement grace period exceeds its ceiling relative to the
+    ///         current period duration.
+    /// @param gracePeriod Provided grace period, in seconds.
+    /// @param maxGracePeriod Maximum allowed grace period, in seconds.
+    error InvalidGracePeriod(uint48 gracePeriod, uint48 maxGracePeriod);
     /// @notice Thrown when referencing a premium token that is not whitelisted.
     error UnsupportedPremiumToken();
     /// @notice Thrown when a token reports decimals greater than the canonical 18.
@@ -492,30 +512,43 @@ interface ICoverOrderAllocator {
 
     /// @notice Commits a Merkle root with matching results. Only ALLOCATOR_ROLE.
     /// @dev The vault asset price is read from the registered `priceFeedAdapter` oracle.
+    ///      Reverts if the grace window (`block.timestamp + settlementGracePeriod`) would
+    ///      reach the period end, since no order could ever settle against the commitment.
+    ///      Stores `matchingCapacity` — the capacity the off-chain matcher ran against —
+    ///      as the commitment's `totalAvailableCapacity`, so the committed tree can be
+    ///      re-derived exactly; the live recompute (widened by `divergenceToleranceBps`)
+    ///      only bounds it.
     /// @param commitmentPeriod The period the caller intends to match. Must equal
     ///        `vault.currentPeriod()` at execution time, otherwise the call reverts.
     /// @param merkleRoot Root of the StandardMerkleTree containing settlement leaves.
-    ///        Each leaf encodes `(orderId, MarketCoverAllocation[], allocatedPremium)`
-    ///        with `allocatedCover` and `allocatedPremium` in canonical USD.
+    ///        Each leaf encodes `(orderId, MarketCoverAllocation[])` with
+    ///        `allocatedCover` in canonical USD.
     /// @param totalAllocated Sum of all allocated cover across all orders in the tree,
-    ///        in canonical USD.
-    function commitAllocation(uint256 commitmentPeriod, bytes32 merkleRoot, uint256 totalAllocated) external;
+    ///        in canonical USD. Must not exceed `matchingCapacity`.
+    /// @param matchingCapacity Capacity the matching ran against, in canonical USD. Must
+    ///        not exceed the live capacity widened by the period's divergence tolerance.
+    function commitAllocation(
+        uint256 commitmentPeriod,
+        bytes32 merkleRoot,
+        uint256 totalAllocated,
+        uint256 matchingCapacity
+    ) external;
 
     /// @notice Settles a single order against the committed Merkle root. Only ALLOCATOR_ROLE.
+    /// @dev The premium is computed on-chain, pro-rata per market from the order's stored
+    ///      rates and the vault's period duration — never taken from the caller or the leaf.
     /// @param orderId Order to settle.
     /// @param marketCoverAllocations Per-market allocated cover, in canonical USD;
     ///        order and market ids must match the order's markets.
-    /// @param allocatedPremium Premium charged for the allocated cover, in canonical USD.
     /// @param proof Merkle proof of the leaf for this order against the period commitment root.
     function settleCoverOrder(
         uint256 orderId,
         MarketCoverAllocation[] calldata marketCoverAllocations,
-        uint256 allocatedPremium,
         bytes32[] calldata proof
     ) external;
 
     /// @notice Settles multiple orders in a single transaction. Only ALLOCATOR_ROLE.
-    /// @param params Per-order settle parameters (orderId, allocations, premium, proof).
+    /// @param params Per-order settle parameters (orderId, allocations, proof).
     function batchSettleCoverOrder(SettleParams[] calldata params) external;
 
     /// @notice Cancels a pending cover order. Only CURATOR_ROLE.
@@ -529,12 +562,33 @@ interface ICoverOrderAllocator {
     function cancelExpiredOrders(uint256[] calldata coverOrderIds) external;
 
     /// @notice Replaces a committed Merkle root if no orders have been settled yet. Only CONFIG_ADMIN_ROLE.
-    /// @dev Restricted to the current period; recomputes capacity from live inputs so the new
-    ///      declared allocation is bound to the period's real collateral within tolerance.
+    /// @dev Restricted to the current period; the new matching capacity is bound to the
+    ///      period's real collateral within tolerance, recomputed from live inputs.
+    ///      Resets the commitment's `graceExpiresAt` from the current `settlementGracePeriod`,
+    ///      under the same period-end proximity check as `commitAllocation` — no commitment can
+    ///      ever store a window past its period end. Recommitting the same root is the supported
+    ///      way to re-derive a published window after a grace update; for a swap late in the
+    ///      period, lower the grace first so the fresh window fits, or use
+    ///      `cancelCommitAllocation` to withdraw the root without a replacement.
     /// @param period Period whose commitment is replaced; must equal the current vault period.
     /// @param newMerkleRoot New StandardMerkleTree root of settlement leaves.
     /// @param newTotalAllocated New declared sum of allocated cover, in canonical USD.
-    function recommitAllocation(uint256 period, bytes32 newMerkleRoot, uint256 newTotalAllocated) external;
+    /// @param newMatchingCapacity Capacity the new matching ran against, in canonical USD.
+    function recommitAllocation(
+        uint256 period,
+        bytes32 newMerkleRoot,
+        uint256 newTotalAllocated,
+        uint256 newMatchingCapacity
+    ) external;
+
+    /// @notice Cancels a period's commitment if no orders have been settled yet. Only CONFIG_ADMIN_ROLE.
+    /// @dev Emergency path to withdraw a bad Merkle root without providing a replacement and
+    ///      without touching the price feed (unlike `recommitAllocation`, it works while the
+    ///      oracle is down or stale). After cancelling, `commitAllocation` can be called again
+    ///      for the period; if no new commit lands, pending orders expire unsettled and can be
+    ///      cleaned up via `cancelExpiredOrders`.
+    /// @param period Period whose commitment is cancelled; must equal the current vault period.
+    function cancelCommitAllocation(uint256 period) external;
 
     // =========================================================================
     // Admin functions
@@ -568,6 +622,13 @@ interface ICoverOrderAllocator {
     /// @notice Minimum delay between `commitAllocation`/`recommitAllocation` and `settleCoverOrder`.
     ///         Gives operators a grace window to swap a bad merkle root via
     ///         `recommitAllocation` before any settle finalizes. Defaults to 0 (disabled).
+    ///         Hard-capped at 8 hours — at most a third of any period duration, since the
+    ///         vault enforces periods to be multiples of its SMALLEST_PERIOD_DURATION (1 day) —
+    ///         so the grace can never consume the settle window.
+    ///         Only affects future commitments: each commitment freezes its own
+    ///         `graceExpiresAt` at commit/recommit time, so no update can move (or kill) an
+    ///         already-published window. To re-derive a published window under a new grace,
+    ///         recommit the same root via `recommitAllocation`.
     function setSettlementGracePeriod(uint48 newGracePeriod) external;
 
     /// @notice Registers a new market. Only CONFIG_ADMIN_ROLE.
@@ -662,22 +723,24 @@ interface ICoverOrderAllocator {
     ///         May include entries currently set to 0 bps (disabled).
     function getSupportedProtocolConcentrationHashes() external view returns (bytes32[] memory);
 
-    /// @notice Pure helper: derives the protocolConcentration hash from raw chainId + protocol.
-    function getProtocolConcentrationHash(uint64 chainId, string calldata protocol) external pure returns (bytes32);
-
-    /// @notice Pure helper: derives the marketId from raw (chainId, protocol, market).
-    function getMarketId(uint64 chainId, string calldata protocol, bytes32 market) external pure returns (bytes32);
-
     /// @notice Returns the (protocol, chainId) tuple that originated the protocolConcentration hash.
-    function getProtocolConcentrationFromHash(bytes32 protocolConcentrationHash) external view returns (ProtocolConcentration memory);
+    function getProtocolConcentrationFromHash(
+        bytes32 protocolConcentrationHash
+    ) external view returns (ProtocolConcentration memory);
 
     /// @notice ProtocolConcentration cap (bps) effective at currentPeriod() + 1.
     function getEffectiveProtocolConcentration(bytes32 protocolConcentrationHash) external view returns (uint256);
 
     /// @notice ProtocolConcentration cap (bps) active at the given `period`. Reads from the
     ///         checkpoint history — useful for auditing past settlements.
-    function getProtocolConcentrationAt(bytes32 protocolConcentrationHash, uint256 period) external view returns (uint256);
+    function getProtocolConcentrationAt(
+        bytes32 protocolConcentrationHash,
+        uint256 period
+    ) external view returns (uint256);
 
     /// @notice Cumulative settled cover for a specific protocolConcentration group in a given period.
-    function getProtocolConcentrationSettledCover(uint256 period, bytes32 protocolConcentrationHash) external view returns (uint256);
+    function getProtocolConcentrationSettledCover(
+        uint256 period,
+        bytes32 protocolConcentrationHash
+    ) external view returns (uint256);
 }

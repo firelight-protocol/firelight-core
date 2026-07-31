@@ -122,6 +122,36 @@ contract FirelightVault is
     event PayoutExecuted(address indexed to, uint256 requestedAmount, uint256 paidAmount, uint48 captureTimestamp);
     event ActiveIncidentUpdated(uint256 indexed period, bool active);
 
+    /**
+     * @notice Emitted when an address is added to the blocklist.
+     * @param account The blocklisted address.
+     */
+    event AddedToBlocklist(address indexed account);
+
+    /**
+     * @notice Emitted when an address is removed from the blocklist.
+     * @param account The address removed from the blocklist.
+     */
+    event RemovedFromBlocklist(address indexed account);
+
+    /**
+     * @notice Emitted when an address is added to the payout allowlist.
+     * @param account The allowlisted address.
+     */
+    event AddedToPayoutAllowlist(address indexed account);
+
+    /**
+     * @notice Emitted when an address is removed from the payout allowlist.
+     * @param account The address removed from the payout allowlist.
+     */
+    event RemovedFromPayoutAllowlist(address indexed account);
+
+    /**
+     * @notice Emitted when a total-assets checkpoint is recorded outside deposit/withdraw flows.
+     * @param totalAssets The total assets recorded, excluding assets pending withdrawal.
+     */
+    event TotalAssetsCheckpointed(uint256 totalAssets);
+
     error BlocklistedAddress();
     error NotBlocklistedAddress();
     error DepositLimitExceeded();
@@ -143,10 +173,14 @@ contract FirelightVault is
     error CurrentPeriodHasActiveIncident();
 
     modifier notBlocklisted(address account) {
+        _requireNotBlocklisted(account);
+        _;
+    }
+
+    function _requireNotBlocklisted(address account) private view {
         if (isBlocklisted[account]) {
             revert BlocklistedAddress();
         }
-        _;
     }
 
     modifier onlyBlocklisted(address account) {
@@ -188,9 +222,7 @@ contract FirelightVault is
             revert InvalidAssetAddress();
         }
 
-        if (initParams.depositLimit == 0) {
-            revert InvalidDepositLimit();
-        }
+        _updateDepositLimit(initParams.depositLimit);
 
         if (initParams.periodConfigurationDuration == 0) {
             revert InvalidPeriodConfigurationDuration();
@@ -200,7 +232,6 @@ contract FirelightVault is
             revert InvalidAdminAddress();
         }
 
-        depositLimit = initParams.depositLimit;
         _addPeriodConfiguration(Time.timestamp(), initParams.periodConfigurationDuration);
         contractVersion = 2;
 
@@ -482,15 +513,25 @@ contract FirelightVault is
     }
 
     /**
+     * @notice Records a checkpoint of the current total assets. Requires CHECKPOINT_ROLE.
+     * @dev Assets forwarded directly to the vault (e.g. reward distribution) do not trigger
+     * the deposit/withdraw checkpoints, so historical `totalAssetsAt` lookups would miss them
+     * until the next flow. The reward distributor calls this atomically after forwarding so
+     * period-start snapshots include the forwarded assets. Restricted to a role because
+     * checkpoint growth on a low-fee chain would otherwise be spammable.
+     */
+    function checkpointTotalAssets() external onlyRole(CHECKPOINT_ROLE) {
+        uint256 assets = totalAssets();
+        _traceTotalAssets.push(Time.timestamp(), assets);
+        emit TotalAssetsCheckpointed(assets);
+    }
+
+    /**
      * @notice Updates the maximum deposit limit for the vault. Requires DEPOSIT_LIMIT_UPDATE_ROLE.
      * @param newLimit The new deposit limit.
      */
     function updateDepositLimit(uint256 newLimit) external onlyRole(DEPOSIT_LIMIT_UPDATE_ROLE) {
-        if (newLimit == 0) {
-            revert InvalidDepositLimit();
-        }
-        depositLimit = newLimit;
-        emit DepositLimitUpdated(newLimit);
+        _updateDepositLimit(newLimit);
     }
 
     /**
@@ -509,6 +550,7 @@ contract FirelightVault is
     function addToBlocklist(address account) external onlyRole(BLOCKLIST_ROLE) notBlocklisted(account) {
         if (account == address(0)) revert InvalidAddress();
         isBlocklisted[account] = true;
+        emit AddedToBlocklist(account);
     }
 
     /**
@@ -517,6 +559,7 @@ contract FirelightVault is
      */
     function removeFromBlocklist(address account) external onlyRole(BLOCKLIST_ROLE) onlyBlocklisted(account) {
         isBlocklisted[account] = false;
+        emit RemovedFromBlocklist(account);
     }
 
     /**
@@ -526,6 +569,7 @@ contract FirelightVault is
     function addToPayoutAllowlist(address account) external onlyRole(PAYOUT_ALLOWLIST_ROLE) {
         if (account == address(0)) revert InvalidAddress();
         isPayoutAllowlisted[account] = true;
+        emit AddedToPayoutAllowlist(account);
     }
 
     /**
@@ -534,6 +578,7 @@ contract FirelightVault is
      */
     function removeFromPayoutAllowlist(address account) external onlyRole(PAYOUT_ALLOWLIST_ROLE) {
         isPayoutAllowlisted[account] = false;
+        emit RemovedFromPayoutAllowlist(account);
     }
 
     /**
@@ -619,6 +664,9 @@ contract FirelightVault is
             true,
             Math.Rounding.Floor
         );
+        // A dust deposit can floor to zero shares once the share price exceeds 1;
+        // reject it instead of pulling assets in exchange for nothing.
+        if (shares == 0) revert InvalidAmount();
 
         _depositFunds(_msgSender(), receiver, assets, shares, _totalSupply, _totalAssets);
 
@@ -849,7 +897,7 @@ contract FirelightVault is
         if (!isPayoutAllowlisted[to]) revert AccountNotAllowlisted();
         if (amount == 0) revert InvalidAmount();
 
-        uint256 capturePeriod = periodAtTimestamp(captureTimestamp);
+        (uint256 capturePeriod, uint48 capturePeriodStart) = _periodAndStartAt(captureTimestamp);
         uint256 _currentPeriod = currentPeriod();
 
         // Payout can execute during the incident period or the following period.
@@ -860,7 +908,6 @@ contract FirelightVault is
 
         // Cap by the active assets committed at the start of the covered period.
         // This is an exposure cap, not a segregated asset bucket.
-        uint48 capturePeriodStart = _periodStart(capturePeriod);
         uint256 assetsAtCapturePeriod = totalAssetsAt(capturePeriodStart);
         uint256 currentActiveAssets = totalAssets();
 
@@ -916,6 +963,14 @@ contract FirelightVault is
         }
 
         emit PayoutExecuted(to, amount, paidAmount, captureTimestamp);
+    }
+
+    function _updateDepositLimit(uint256 newLimit) internal {
+        if (newLimit == 0) {
+            revert InvalidDepositLimit();
+        }
+        depositLimit = newLimit;
+        emit DepositLimitUpdated(newLimit);
     }
 
     function _depositFunds(
@@ -1062,9 +1117,14 @@ contract FirelightVault is
         return hasActiveIncident[period] || (period > 0 && hasActiveIncident[period - 1]);
     }
 
-    function _periodStart(uint256 period) internal view returns (uint48) {
-        PeriodConfiguration memory pc = periodConfigurationAtNumber(period);
-        return pc.epoch + uint48(period - pc.startingPeriod) * pc.duration;
+    /// @dev Resolves a timestamp's period number and period start from a single scan of the
+    ///      configuration history: the configuration governing the timestamp also governs
+    ///      its period, so both derive from one lookup.
+    function _periodAndStartAt(uint48 timestamp) internal view returns (uint256 period, uint48 start) {
+        PeriodConfiguration memory pc = periodConfigurationAtTimestamp(timestamp);
+        uint48 periodsSinceEpoch = _timestampSinceEpoch(timestamp, pc.epoch) / pc.duration;
+        period = pc.startingPeriod + periodsSinceEpoch;
+        start = pc.epoch + periodsSinceEpoch * pc.duration;
     }
 
     function _isPeriodInPayoutWindow(uint256 period, uint256 current) internal pure returns (bool) {

@@ -62,10 +62,10 @@ const buildMerkleTree = (expectedOrders, scenarioOrders, marketIds) => {
       marketIds[orderMarkets[i].marketId],
       BigInt(v)
     ])
-    return [BigInt(o.orderId), tuples, BigInt(o.allocatedPremiumAmount)]
+    return [BigInt(o.orderId), tuples]
   })
 
-  const tree = StandardMerkleTree.of(leaves, ['uint256', '(bytes32,uint256)[]', 'uint256'])
+  const tree = StandardMerkleTree.of(leaves, ['uint256', '(bytes32,uint256)[]'])
   return { tree, root: tree.root }
 }
 
@@ -301,7 +301,16 @@ for (const file of vectorFiles) {
         // before() and here, and PriceFeed.getPrice would otherwise revert with
         // PriceFeedTooOld since maxPriceAge = 3600s).
         await priceFeed.setAnswer(BigInt(scenario.matchingParams.assetPriceUSD))
-        await allocator.connect(allocatorRole).commitAllocation(commitmentPeriod, root, totalAllocated)
+        // Live capacity mirroring _computeAvailableCapacity (tolerance 0): the value the
+        // off-chain matcher would have run against, passed as matchingCapacity.
+        const capScale = 10n ** BigInt(18 - scenario.setup.premiumTokens[0].decimals)
+        const flb18 = BigInt(scenario.setup.capacityConfig.firstLossBufferBalance) * capScale
+        const assets18 = BigInt(scenario.setup.vault.totalAssets) * capScale
+        const matchingCapacity =
+          ((flb18 + (assets18 * BigInt(scenario.matchingParams.assetPriceUSD)) / 10n ** 18n) *
+            BigInt(scenario.matchingParams.effectiveLeverage)) /
+          BigInt(scenario.setup.capacityConfig.minCAR)
+        await allocator.connect(allocatorRole).commitAllocation(commitmentPeriod, root, totalAllocated, matchingCapacity)
 
         const commit = await allocator.getAllocationCommitment(commitmentPeriod)
         expect(commit.root).to.equal(root)
@@ -318,7 +327,6 @@ for (const file of vectorFiles) {
           await allocator.connect(allocatorRole).settleCoverOrder(
             exp.orderId,
             tuples,
-            BigInt(exp.allocatedPremiumAmount),
             proof
           )
         }
