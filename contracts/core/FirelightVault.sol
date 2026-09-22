@@ -867,7 +867,6 @@ contract FirelightVault is
 
             withdrawSharesOf[periods[i]][to] += _withdrawOf;
             withdrawSharesOf[periods[i]][from] = 0;
-            isWithdrawClaimed[periods[i]][from] = true;
 
             rescuedShares[i] = _withdrawOf;
         }
