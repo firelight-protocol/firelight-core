@@ -22,6 +22,7 @@ contract MockCoverOrderAllocatorVault is IFirelightVault {
     bool private _hasSnapshot;
     uint256 private _totalAssetsAtSnapshot;
     mapping(uint256 => PeriodConfiguration) private _periodConfigs;
+    mapping(uint48 => uint256) private _periodAtTimestamp;
 
     // -------------------------------------------------------------------------
     // Test setters
@@ -51,6 +52,9 @@ contract MockCoverOrderAllocatorVault is IFirelightVault {
     }
     function setPeriodConfiguration(uint256 periodNumber, PeriodConfiguration calldata cfg) external {
         _periodConfigs[periodNumber] = cfg;
+    }
+    function setPeriodAtTimestamp(uint48 timestamp, uint256 period) external {
+        _periodAtTimestamp[timestamp] = period;
     }
 
     // -------------------------------------------------------------------------
@@ -173,7 +177,9 @@ contract MockCoverOrderAllocatorVault is IFirelightVault {
         return pc;
     }
 
-    function periodAtTimestamp(uint48) external pure override returns (uint256) { return 0; }
+    function periodAtTimestamp(uint48 timestamp) external view override returns (uint256) {
+        return _periodAtTimestamp[timestamp];
+    }
 
     function currentPeriodConfiguration()
         external

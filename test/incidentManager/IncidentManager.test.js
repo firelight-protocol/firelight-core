@@ -1,4 +1,4 @@
-const { loadFixture } = require('@nomicfoundation/hardhat-network-helpers')
+const { loadFixture, time } = require('@nomicfoundation/hardhat-network-helpers')
 const { deployIncidentManager, ROLES, IncidentStatus, AssessmentRoundStatus } = require('./fixtures.js')
 const { expect } = require('chai')
 const { ethers, upgrades } = require('hardhat')
@@ -54,6 +54,17 @@ async function withDraftRound(ctx, { amount = 100n, allocated = 1000n } = {}) {
 async function withSubmittedRound(ctx, opts = {}) {
   await withDraftRound(ctx, opts)
   await ctx.incidentManager.connect(ctx.curator).submitCurrentAssessment(1)
+}
+
+// Fixture variant with the mock vault still in period zero.
+const deployAtPeriodZero = () => deployIncidentManager({ currentPeriod: 0 })
+
+// Helper: drives an already-created incident `incidentId` to a submitted (UNDER_EVALUATION) round.
+async function submitRoundFor(ctx, incidentId) {
+  await ctx.incidentManager.connect(ctx.curator).confirmIncident(incidentId, 'ipfs://r')
+  await ctx.setOrderMarket(incidentId, ctx.marketIdA, 1000n, ctx.payoutRecipient1.address)
+  await ctx.incidentManager.connect(ctx.curator).addAssessmentLosses(incidentId, [ctx.lossOf(incidentId, ctx.marketIdA, 100n)])
+  await ctx.incidentManager.connect(ctx.curator).submitCurrentAssessment(incidentId)
 }
 
 describe('IncidentManager', function () {
@@ -1112,6 +1123,218 @@ describe('IncidentManager', function () {
       const { incidentManager } = await loadFixture(deployIncidentManager)
       const [, exists] = await incidentManager.getIncident(123)
       expect(exists).to.equal(false)
+    })
+  })
+
+  describe('createIncident edge cases', () => {
+    it('reverts when the capture timestamp is in the future', async () => {
+      const ctx = await loadFixture(deployIncidentManager)
+      const future = (await time.latest()) + 1000
+      await ctx.vault.setPeriodAtTimestamp(future, ctx.INCIDENT_PERIOD)
+
+      await expect(ctx.incidentManager.connect(ctx.curator).createIncident(future, 'Future', ctx.refOf('future')))
+        .to.be.revertedWithCustomError(ctx.incidentManager, 'InvalidCaptureTimestamp')
+    })
+
+    it('reverts when another incident already uses the same capture timestamp in the period', async () => {
+      const ctx = await loadFixture(deployIncidentManager)
+      await ctx.incidentManager.connect(ctx.curator).createIncident(ctx.DEFAULT_CAPTURE_TIMESTAMP, 'A', ctx.refOf('a'))
+
+      await expect(ctx.incidentManager.connect(ctx.curator).createIncident(ctx.DEFAULT_CAPTURE_TIMESTAMP, 'B', ctx.refOf('b')))
+        .to.be.revertedWithCustomError(ctx.incidentManager, 'IncidentTimestampAlreadyExists')
+    })
+  })
+
+  describe('capture-timestamp approval ordering', () => {
+    it('orders approvals by capture timestamp even when incidents are created out of order', async () => {
+      const ctx = await loadFixture(deployIncidentManager)
+      const earlierTs = ctx.DEFAULT_CAPTURE_TIMESTAMP - 500
+      await ctx.vault.setPeriodAtTimestamp(earlierTs, ctx.INCIDENT_PERIOD)
+
+      // Incident 1 is created first but captured later; incident 2 is captured earlier,
+      // exercising the sorted insertion of capture timestamps.
+      await ctx.incidentManager.connect(ctx.curator).createIncident(ctx.DEFAULT_CAPTURE_TIMESTAMP, 'Late capture', ctx.refOf('late'))
+      await ctx.incidentManager.connect(ctx.curator).createIncident(earlierTs, 'Early capture', ctx.refOf('early'))
+
+      await submitRoundFor(ctx, 1)
+      await submitRoundFor(ctx, 2)
+
+      // Incident 2 (earliest capture) must be approved first
+      await expect(ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(1))
+        .to.be.revertedWithCustomError(ctx.incidentManager, 'IncidentApprovalOutOfOrder')
+        .withArgs(1, 2)
+
+      await ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(2)
+
+      // With incident 2 closed, the ordering scan skips it and incident 1 becomes approvable
+      await ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(1)
+
+      const [incident1] = await ctx.incidentManager.getIncident(1)
+      expect(incident1.status).to.equal(IncidentStatus.CLOSED)
+    })
+
+    it('reverts approveCurrentAssessment without ASSESSMENT_APPROVER_ROLE', async () => {
+      const ctx = await loadFixture(deployIncidentManager)
+      await expect(ctx.incidentManager.connect(ctx.stranger).approveCurrentAssessment(1))
+        .to.be.revertedWithCustomError(ctx.incidentManager, 'AccessControlUnauthorizedAccount')
+    })
+
+    it('approves an incident of period zero when the vault is still in period zero', async () => {
+      const ctx = await loadFixture(deployAtPeriodZero)
+      const ts = 1_600_000_000
+      await ctx.vault.setPeriodAtTimestamp(ts, 0)
+
+      await ctx.incidentManager.connect(ctx.curator).createIncident(ts, 'Genesis', ctx.refOf('genesis'))
+      await ctx.incidentManager.connect(ctx.curator).confirmIncident(1, 'ipfs://r')
+      await ctx.setOrderMarket(1, ctx.marketIdA, 1000n, ctx.payoutRecipient1.address, 0)
+      await ctx.incidentManager.connect(ctx.curator).addAssessmentLosses(1, [ctx.lossOf(1, ctx.marketIdA, 100n)])
+      await ctx.incidentManager.connect(ctx.curator).submitCurrentAssessment(1)
+
+      await ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(1)
+
+      const [incident] = await ctx.incidentManager.getIncident(1)
+      expect(incident.status).to.equal(IncidentStatus.CLOSED)
+    })
+  })
+
+  describe('cancelIncident with a terminal assessment round', () => {
+    it('cancels the current round when it is still under evaluation', async () => {
+      const ctx = await loadFixture(deployIncidentManager)
+      await ctx.incidentManager.connect(ctx.curator).createIncident(ctx.DEFAULT_CAPTURE_TIMESTAMP, 'A', ctx.refOf('a'))
+      await submitRoundFor(ctx, 1)
+
+      const tx = ctx.incidentManager.connect(ctx.incidentInvalidator).cancelIncident(1, 'invalid data')
+      await expect(tx).to.emit(ctx.incidentManager, 'AssessmentRoundCanceled').withArgs(1, 1)
+      await expect(tx).to.emit(ctx.incidentManager, 'IncidentInvalidated').withArgs(1, 'invalid data')
+
+      const [round] = await ctx.incidentManager.getAssessmentRound(1, 1)
+      expect(round.status).to.equal(AssessmentRoundStatus.CANCELED)
+    })
+
+    it('does not re-cancel a round that was already rejected', async () => {
+      const ctx = await loadFixture(deployIncidentManager)
+      await ctx.incidentManager.connect(ctx.curator).createIncident(ctx.DEFAULT_CAPTURE_TIMESTAMP, 'A', ctx.refOf('a'))
+      await submitRoundFor(ctx, 1)
+      await ctx.incidentManager.connect(ctx.assessmentRejecter).rejectCurrentAssessment(1)
+
+      const tx = ctx.incidentManager.connect(ctx.incidentInvalidator).cancelIncident(1, 'invalid data')
+      await expect(tx).to.emit(ctx.incidentManager, 'IncidentInvalidated').withArgs(1, 'invalid data')
+      await expect(tx).to.not.emit(ctx.incidentManager, 'AssessmentRoundCanceled')
+
+      const [round] = await ctx.incidentManager.getAssessmentRound(1, 1)
+      expect(round.status).to.equal(AssessmentRoundStatus.REJECTED)
+    })
+  })
+
+  describe('idempotent admin setters', () => {
+    it('setPayoutReceiver is a no-op when the receiver does not change', async () => {
+      const ctx = await loadFixture(deployIncidentManager)
+      await expect(ctx.incidentManager.connect(ctx.payoutAdmin).setPayoutReceiver(ctx.payoutReceiver.address))
+        .to.not.emit(ctx.incidentManager, 'PayoutReceiverUpdated')
+      expect(await ctx.incidentManager.payoutReceiver()).to.equal(ctx.payoutReceiver.address)
+    })
+
+    it('setMaxPriceAge is a no-op when the age does not change', async () => {
+      const ctx = await loadFixture(deployIncidentManager)
+      await expect(ctx.incidentManager.connect(ctx.priceFeedAdmin).setMaxPriceAge(ctx.maxPriceAge))
+        .to.not.emit(ctx.incidentManager, 'MaxPriceAgeUpdated')
+    })
+
+    it('setPriceFeedAdapter is a no-op when the adapter does not change', async () => {
+      const ctx = await loadFixture(deployIncidentManager)
+      await expect(ctx.incidentManager.connect(ctx.priceFeedAdmin).setPriceFeedAdapter(ctx.priceFeed.target))
+        .to.not.emit(ctx.incidentManager, 'PriceFeedAdapterUpdated')
+    })
+
+    it('updateIncidentReportURI is a no-op when the URI does not change', async () => {
+      const ctx = await loadFixture(deployIncidentManager)
+      await ctx.incidentManager.connect(ctx.curator).createIncident(ctx.DEFAULT_CAPTURE_TIMESTAMP, 'A', ctx.refOf('a'))
+      await ctx.incidentManager.connect(ctx.curator).confirmIncident(1, 'ipfs://r')
+
+      await expect(ctx.incidentManager.connect(ctx.configAdmin).updateIncidentReportURI(1, 'ipfs://r'))
+        .to.not.emit(ctx.incidentManager, 'IncidentReportURIUpdated')
+    })
+  })
+
+  describe('expired-period views', () => {
+    it('reports an unresolved incident as EXPIRED once its payout window closes', async () => {
+      const ctx = await loadFixture(deployIncidentManager)
+      await ctx.incidentManager.connect(ctx.curator).createIncident(ctx.DEFAULT_CAPTURE_TIMESTAMP, 'A', ctx.refOf('a'))
+
+      await ctx.vault.setCurrentPeriod(5)
+
+      const [incident, exists] = await ctx.incidentManager.getIncident(1)
+      expect(exists).to.equal(true)
+      expect(incident.status).to.equal(IncidentStatus.EXPIRED)
+    })
+
+    it('activeIncidentCount reflects active incidents and returns zero after expiry', async () => {
+      const ctx = await loadFixture(deployIncidentManager)
+      await ctx.incidentManager.connect(ctx.curator).createIncident(ctx.DEFAULT_CAPTURE_TIMESTAMP, 'A', ctx.refOf('a'))
+
+      expect(await ctx.incidentManager.activeIncidentCount(ctx.INCIDENT_PERIOD)).to.equal(1n)
+
+      await ctx.vault.setCurrentPeriod(5)
+      expect(await ctx.incidentManager.activeIncidentCount(ctx.INCIDENT_PERIOD)).to.equal(0n)
+    })
+  })
+
+  describe('active incident counter transitions', () => {
+    it('keeps the period flagged while other incidents remain active', async () => {
+      const ctx = await loadFixture(deployIncidentManager)
+      const otherTs = ctx.DEFAULT_CAPTURE_TIMESTAMP + 500
+      await ctx.vault.setPeriodAtTimestamp(otherTs, ctx.INCIDENT_PERIOD)
+
+      await ctx.incidentManager.connect(ctx.curator).createIncident(ctx.DEFAULT_CAPTURE_TIMESTAMP, 'A', ctx.refOf('a'))
+      await ctx.incidentManager.connect(ctx.curator).createIncident(otherTs, 'B', ctx.refOf('b'))
+      expect(await ctx.incidentManager.activeIncidentCount(ctx.INCIDENT_PERIOD)).to.equal(2n)
+
+      // 2 -> 1: the vault deposit block must not be lifted yet
+      await ctx.incidentManager.connect(ctx.curator).cancelPreAssessmentIncident(1, 'duplicate')
+      expect(await ctx.incidentManager.activeIncidentCount(ctx.INCIDENT_PERIOD)).to.equal(1n)
+
+      // 1 -> 0: the block is lifted with the last active incident
+      await ctx.incidentManager.connect(ctx.curator).cancelPreAssessmentIncident(2, 'duplicate')
+      expect(await ctx.incidentManager.activeIncidentCount(ctx.INCIDENT_PERIOD)).to.equal(0n)
+    })
+
+    it('ignores decrements when the period has no active incidents (harness)', async () => {
+      const harness = await (await ethers.getContractFactory('IncidentManagerHarness')).deploy()
+      // Defensive early return: must not revert nor underflow
+      await harness.exposedDecreaseIncident(42)
+    })
+  })
+
+  describe('reentrancy protection', () => {
+    it('blocks reentrant approvals through the first-loss buffer token', async () => {
+      const ctx = await loadFixture(deployIncidentManager)
+
+      // Malicious first-loss buffer token that re-enters the IncidentManager on transfers
+      const reentrant = await (await ethers.getContractFactory('ReentrantVaultAsset')).deploy()
+      await ctx.coverOrderAllocator.setMockCapacityConfig({
+        minCAR: 10000,
+        firstLossBufferToken: reentrant.target,
+        firstLossBuffer: ctx.firstLossBufferPayer.address,
+        effectiveLeverage: 20000,
+        minOrderMarketCoverAmount: 1,
+        divergenceToleranceBps: 0
+      })
+
+      await ctx.incidentManager.connect(ctx.curator).createIncident(ctx.DEFAULT_CAPTURE_TIMESTAMP, 'A', ctx.refOf('a'))
+      await submitRoundFor(ctx, 1)
+
+      // Fund and approve the buffer so the payout pulls from the reentrant token
+      await reentrant.mint(ctx.firstLossBufferPayer.address, e18(1000))
+      await reentrant.connect(ctx.firstLossBufferPayer).approve(ctx.incidentManager.target, e18(1000))
+
+      // The token re-enters approveCurrentAssessment as a role holder, so the
+      // reentrancy guard (and not the role check) is what stops it
+      await ctx.incidentManager.connect(ctx.admin).grantRole(ROLES.ASSESSMENT_APPROVER_ROLE, reentrant.target)
+      await reentrant.setVault(ctx.incidentManager.target)
+      await reentrant.setReentrantCall(ctx.incidentManager.interface.encodeFunctionData('approveCurrentAssessment', [1]))
+
+      await expect(ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(1))
+        .to.be.revertedWithCustomError(ctx.incidentManager, 'ReentrancyGuardReentrantCall')
     })
   })
 })
