@@ -138,3 +138,7 @@ edr-cache/
 .openzeppelin/
 
 scripts/deploy-testnet-predeposits/config.json
+out/
+cache_forge/
+foundry.lock
+x-ray
