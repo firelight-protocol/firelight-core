@@ -412,7 +412,8 @@ contract FirelightVault is
         if (isBlocklisted[owner] || paused()) {
             return 0;
         } else {
-            return balanceOf(owner);
+            uint256 shares = balanceOf(owner);
+            return _convertToAssets(shares, Math.Rounding.Floor) == 0 ? 0 : shares;
         }
     }
 
@@ -731,6 +732,8 @@ contract FirelightVault is
             false,
             Math.Rounding.Floor
         );
+
+        if (assets == 0) revert InvalidAmount();
 
         uint256 ownerBalance = _requestWithdraw(assets, shares, receiver, owner);
 
