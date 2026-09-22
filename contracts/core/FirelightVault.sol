@@ -908,7 +908,10 @@ contract FirelightVault is
 
         // Cap by the active assets committed at the start of the covered period.
         // This is an exposure cap, not a segregated asset bucket.
-        uint256 assetsAtCapturePeriod = totalAssetsAt(capturePeriodStart);
+        // Use capturePeriodStart - 1 so the inclusive lookup selects timestamps < capturePeriodStart.
+        // This excludes deposits and withdrawals at the period start from the payout snapshot.
+        // capturePeriodStart is always > 0 (deploy epoch), so the subtraction cannot underflow.
+        uint256 assetsAtCapturePeriod = totalAssetsAt(capturePeriodStart - 1);
         uint256 currentActiveAssets = totalAssets();
 
         // Withdrawals requested during the capture period are assigned to capturePeriod + 1

@@ -25,6 +25,13 @@ contract F1PayoutShareDecoupling is Test {
     address internal receiver = address(0xBEEF);
 
     uint48 internal start;
+    /// @dev Start of the capture period used by every case here. It is period 1, NOT period 0:
+    ///      `payout` snapshots the exposure cap at `capturePeriodStart - 1`, and for period 0 that
+    ///      instant predates the vault, so the cap would read 0 and no bucket could ever be drained.
+    uint48 internal capturePeriodStart;
+    /// @dev Withdrawal bucket targeted by requests made during the capture period (capturePeriod + 1).
+    uint256 internal constant BUCKET = 2;
+    uint48 internal constant PERIOD = uint48(1 days);
     uint256 internal constant D = 1000e18; // Alice's deposit/withdrawal
 
     function setUp() public {
@@ -41,7 +48,7 @@ contract F1PayoutShareDecoupling is Test {
             periodConfigurationUpdater: address(this),
             rescuer: address(this),
             depositLimit: 1e30,
-            periodConfigurationDuration: uint48(1 days)
+            periodConfigurationDuration: PERIOD
         });
         bytes memory initCall = abi.encodeWithSelector(
             FirelightVault.initialize.selector, IERC20(address(asset)), "FL", "FL", abi.encode(p)
@@ -53,26 +60,34 @@ contract F1PayoutShareDecoupling is Test {
         vault.addToPayoutAllowlist(receiver);
 
         // --- Drive the vault into the "drained withdrawal bucket" state ---
-        // 1) Alice deposits D at the period-0 start (checkpoint _traceTotalAssets@start = D).
+        // 1) Alice deposits D during period 0 (checkpoint _traceTotalAssets@start = D).
         _deposit(alice, D);
-        // 2) Move within period 0, Alice withdraws everything -> bucket period 1 holds D assets / D shares,
-        //    active assets drop to 0, all shares burned.
-        vm.warp(start + 1 hours);
+
+        // 2) Cross into period 1. Its exposure snapshot, read at `capturePeriodStart - 1`, is the
+        //    end-of-period-0 state = D.
+        capturePeriodStart = start + PERIOD;
+        vm.warp(capturePeriodStart + 1 hours);
+        assertEq(vault.currentPeriod(), 1, "in the capture period");
+        assertEq(vault.currentPeriodStart(), capturePeriodStart, "capture period start");
+        assertEq(vault.totalAssetsAt(capturePeriodStart - 1), D, "opening exposure");
+
+        // 3) Alice withdraws everything -> bucket 2 holds D assets / D shares, active assets drop
+        //    to 0, all shares burned.
         vm.prank(alice);
         vault.withdraw(D, alice, alice);
 
-        assertEq(vault.currentPeriod(), 0, "still period 0");
-        assertEq(vault.withdrawAssets(1), D, "bucket assets");
-        assertEq(vault.withdrawShares(1), D, "bucket shares");
+        assertEq(vault.withdrawAssets(BUCKET), D, "bucket assets");
+        assertEq(vault.withdrawShares(BUCKET), D, "bucket shares");
         assertEq(vault.totalAssets(), 0, "active assets drained to pending");
 
-        // 3) Incident payout for capture period 0 drains the full capture+1 withdrawal bucket.
-        //    assetsAtCapturePeriod = totalAssetsAt(start) = D ; active = 0 -> paidFromCapture = D.
-        vault.payout(receiver, D, start);
+        // 4) Incident payout for capture period 1 drains the full capture+1 withdrawal bucket.
+        //    assetsAtCapturePeriod = totalAssetsAt(capturePeriodStart - 1) = D ; active = 0
+        //    -> paidFromCapture = D.
+        vault.payout(receiver, D, capturePeriodStart);
 
         // Post-condition: bucket assets zeroed, bucket SHARES untouched -> the decoupling.
-        assertEq(vault.withdrawAssets(1), 0, "F1(A): bucket assets drained to 0");
-        assertEq(vault.withdrawShares(1), D, "F1(A): bucket shares NOT reduced (decoupling)");
+        assertEq(vault.withdrawAssets(BUCKET), 0, "F1(A): bucket assets drained to 0");
+        assertEq(vault.withdrawShares(BUCKET), D, "F1(A): bucket shares NOT reduced (decoupling)");
     }
 
     function _deposit(address who, uint256 amt) internal {
@@ -83,10 +98,10 @@ contract F1PayoutShareDecoupling is Test {
         vault.deposit(amt, who);
     }
 
-    /// F1(A): the payout left the period-1 withdrawal pool with 0 assets but a nonzero share supply.
+    /// F1(A): the payout left the capture+1 withdrawal pool with 0 assets but a nonzero share supply.
     function test_F1_A_decouplingExists() public view {
-        assertEq(vault.withdrawAssets(1), 0);
-        assertGt(vault.withdrawShares(1), 0);
+        assertEq(vault.withdrawAssets(BUCKET), 0);
+        assertGt(vault.withdrawShares(BUCKET), 0);
     }
 
     /// F1(B): a new requester into the drained period is credited shares wildly out of proportion
@@ -95,9 +110,9 @@ contract F1PayoutShareDecoupling is Test {
         address bob = address(0xB0B);
         _deposit(bob, 1e18);
         vm.prank(bob);
-        vault.withdraw(1e18, bob, bob); // targets period 1 (currentPeriod 0 + 1)
+        vault.withdraw(1e18, bob, bob); // targets the drained bucket (currentPeriod 1 + 1)
 
-        uint256 bobShares = vault.withdrawSharesOf(1, bob);
+        uint256 bobShares = vault.withdrawSharesOf(BUCKET, bob);
         // Bob brought 1e18 assets but is credited ~ 1e18 * (withdrawShares+1) withdraw-shares.
         assertGt(bobShares, 1e30, "F1(B): grossly over-credited vs 1e18 assets brought");
         emit log_named_uint("bob withdraw-shares for 1e18 assets", bobShares);
@@ -115,7 +130,7 @@ contract F1PayoutShareDecoupling is Test {
             vault.withdraw(1e21, req, req); // must NOT revert (no mulDiv overflow)
         }
         // Reached here without reverting -> overflow DoS refuted at realistic scale.
-        assertGt(vault.withdrawShares(1), 0);
+        assertGt(vault.withdrawShares(BUCKET), 0);
     }
 
     /// F1(D): a late entrant who withdraws into the drained period and later claims — does it lose
@@ -128,15 +143,15 @@ contract F1PayoutShareDecoupling is Test {
         // leaving redeem to run as the test contract (sender != owner -> spurious share-allowance spend).
         uint256 carolShares = vault.balanceOf(carol);
         vm.prank(carol);
-        vault.redeem(carolShares, carol, carol); // request into period 1
+        vault.redeem(carolShares, carol, carol); // request into the drained bucket
 
-        // Advance past period 1 so the bucket is claimable.
-        vm.warp(start + 2 days + 1 hours);
-        assertGt(vault.currentPeriod(), 1, "period 1 claimable");
+        // Advance past the bucket's period so it becomes claimable.
+        vm.warp(capturePeriodStart + 2 * PERIOD + 1 hours);
+        assertGt(vault.currentPeriod(), BUCKET, "bucket claimable");
 
         uint256 before = asset.balanceOf(carol);
         vm.prank(carol);
-        vault.claimWithdraw(1);
+        vault.claimWithdraw(BUCKET);
         uint256 received = asset.balanceOf(carol) - before;
 
         emit log_named_uint("carol deposited", amt);
