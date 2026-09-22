@@ -178,6 +178,9 @@ interface ICoverOrderAllocator {
         uint256 minCAR;
         /// ERC20 (decimals ≤ CANONICAL_DECIMALS) used as first-loss-buffer collateral.
         IERC20 firstLossBufferToken;
+        /// Upper margin (bps) tolerated between the submitted `totalAllocated` and the recomputed
+        /// capacity at commit/recommit, to absorb price/FLB drift. 0 = strict (legacy behavior).
+        uint16 divergenceToleranceBps;
         /// Custody wallet holding the first-loss-buffer balance.
         address firstLossBuffer;
         /// Leverage applied to collateral when computing capacity, in bps
@@ -185,9 +188,6 @@ interface ICoverOrderAllocator {
         uint256 effectiveLeverage;
         /// Minimum per-market cover amount allowed on an order, in canonical USD.
         uint256 minOrderMarketCoverAmount;
-        /// Upper margin (bps) tolerated between the submitted `totalAllocated` and the recomputed
-        /// capacity at commit/recommit, to absorb price/FLB drift. 0 = strict (legacy behavior).
-        uint16 divergenceToleranceBps;
     }
 
     /// @notice Committed off-chain matching results and settlement accounting for a period.
