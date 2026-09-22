@@ -1082,8 +1082,11 @@ contract FirelightVault is
     }
 
     function _addPeriodConfiguration(uint48 newEpoch, uint48 newDuration) private {
-        if (newDuration < SMALLEST_PERIOD_DURATION || newDuration % SMALLEST_PERIOD_DURATION != 0)
-            revert InvalidPeriodConfigurationDuration();
+        if (
+            newDuration < SMALLEST_PERIOD_DURATION ||
+            newDuration > MAX_PERIOD_DURATION ||
+            newDuration % SMALLEST_PERIOD_DURATION != 0
+        ) revert InvalidPeriodConfigurationDuration();
 
         uint256 startingPeriod;
         if (periodConfigurations.length > 0) {

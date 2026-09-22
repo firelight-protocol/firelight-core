@@ -148,6 +148,8 @@ interface IFirelightVault is IERC4626, IAccessControl {
 
     function SMALLEST_PERIOD_DURATION() external view returns (uint48);
 
+    function MAX_PERIOD_DURATION() external view returns (uint48);
+
     // -------------------------------------------------------------------------
     // Storage getters (auto-generated from public state variables)
     // -------------------------------------------------------------------------

@@ -103,6 +103,7 @@ contract MockIncidentManagerVault is IFirelightVault {
     function PAUSE_ROLE() external pure override returns (bytes32) { return bytes32(0); }
     function PERIOD_CONFIGURATION_UPDATE_ROLE() external pure override returns (bytes32) { return bytes32(0); }
     function SMALLEST_PERIOD_DURATION() external pure override returns (uint48) { return 0; }
+    function MAX_PERIOD_DURATION() external pure override returns (uint48) { return 0; }
     function PAYOUT_ALLOWLIST_ROLE() external pure override returns (bytes32) { return bytes32(0); }
     function PAYOUT_ROLE() external pure override returns (bytes32) { return bytes32(0); }
     function INCIDENT_ROLE() external pure override returns (bytes32) { return bytes32(0); }

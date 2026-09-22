@@ -160,3 +160,48 @@ describe('Period update test', function() {
 	});
 
 })
+
+describe('Period duration upper bound', function() {
+  const DECIMALS = 6,
+        INITIAL_DEPOSIT_LIMIT = ethers.parseUnits('20000', DECIMALS),
+        PERIOD_CONFIGURATION_DURATION = 172800 // 2 days
+
+  // The duration check runs before the epoch checks, so any valid-enough epoch is fine here;
+  // this one is day-aligned and at the next period end so the accept case also passes.
+  async function fixture() {
+    const ctx = await loadFixture(
+      deployVault.bind(null, {
+        decimals: DECIMALS,
+        initial_deposit_limit: INITIAL_DEPOSIT_LIMIT,
+        period_configuration_duration: PERIOD_CONFIGURATION_DURATION
+      })
+    )
+    const current_period_end = await ctx.firelight_vault.currentPeriodEnd()
+    const new_epoch = Number(current_period_end) + PERIOD_CONFIGURATION_DURATION
+    return { ...ctx, new_epoch }
+  }
+
+  it('reverts a duration above MAX_PERIOD_DURATION, including the near-uint48 overflow arm', async () => {
+    const { firelight_vault, period_configuration_updater, new_epoch } = await fixture()
+    const max_duration = await firelight_vault.MAX_PERIOD_DURATION(),
+          smallest = await firelight_vault.SMALLEST_PERIOD_DURATION()
+
+    const over_max = max_duration + smallest,            // one day-aligned step over the cap
+          huge = 2n ** 47n - (2n ** 47n % smallest)      // near-uint48: the brick/overflow arm
+
+    for (const duration of [over_max, huge]) {
+      await expect(
+        firelight_vault.connect(period_configuration_updater).addPeriodConfiguration(new_epoch, duration)
+      ).to.be.revertedWithCustomError(firelight_vault, 'InvalidPeriodConfigurationDuration')
+    }
+  })
+
+  it('accepts a duration exactly at MAX_PERIOD_DURATION', async () => {
+    const { firelight_vault, period_configuration_updater, new_epoch } = await fixture()
+    const max_duration = await firelight_vault.MAX_PERIOD_DURATION()
+
+    await expect(
+      firelight_vault.connect(period_configuration_updater).addPeriodConfiguration(new_epoch, max_duration)
+    ).to.not.be.reverted
+  })
+})
