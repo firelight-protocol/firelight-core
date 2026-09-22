@@ -416,6 +416,14 @@ interface IIncidentManager {
     error InvalidPriceFeedDecimals(uint8 decimals);
 
     /**
+     * @notice Reverts when the specified assessment round is not the incident's current assessment round.
+     * @param incidentId Incident id associated with the assessment round.
+     * @param assessmentRoundId Assessment round id supplied by the caller.
+     * @param currentAssessmentRoundId Incident's current assessment round id.
+     */
+    error InvalidAssessmentRoundId(uint256 incidentId, uint256 assessmentRoundId, uint256 currentAssessmentRoundId);
+
+    /**
      * @notice Creates an incident in OPEN status.
      * The vault determines the affected period from `captureTimestamp`.
      * `captureTimestamp` is a Unix timestamp in seconds. If multiple incidents occur at the same second within one
@@ -492,25 +500,29 @@ interface IIncidentManager {
     function cancelCurrentAssessment(uint256 incidentId) external;
 
     /**
-     * @notice Approves the current UNDER_EVALUATION assessment round and executes the payout waterfall.
+     * @notice Approves the specified UNDER_EVALUATION assessment round and executes the payout waterfall.
      * The assessment round moves to APPROVED and the incident moves to CLOSED.
      * The payout uses the first-loss buffer first and requests any remaining amount from the vault.
      * This contract must be authorized to call vault payouts, and the configured payout receiver must be allowlisted
      * by the vault. A valid incident can close even if the vault pays less than requested, including zero, when
      * slashable vault capacity is exhausted.
+     * The specified `assessmentRoundId` must be the incident's current assessment round when the transaction executes.
      * Approvers are responsible for confirming the assessment is valid and does not overstate claims across
      * related incidents.
-     * @param incidentId Incident id whose current assessment round is approved.
+     * @param incidentId Incident id associated with the assessment round.
+     * @param assessmentRoundId Assessment round id reviewed and authorized for approval.
      */
-    function approveCurrentAssessment(uint256 incidentId) external;
+    function approveAssessment(uint256 incidentId, uint256 assessmentRoundId) external;
 
     /**
-     * @notice Rejects the current UNDER_EVALUATION assessment round.
+     * @notice Rejects the specified UNDER_EVALUATION assessment round.
+     * The specified `assessmentRoundId` must be the incident's current assessment round when the transaction executes.
      * The incident remains UNDER_EVALUATION and may receive a new assessment round.
      * The next call to `addAssessmentLosses` opens a new DRAFT assessment round.
-     * @param incidentId Incident id whose current assessment round is rejected.
+     * @param incidentId Incident id associated with the assessment round.
+     * @param assessmentRoundId Assessment round id reviewed and authorized for rejection.
      */
-    function rejectCurrentAssessment(uint256 incidentId) external;
+    function rejectAssessment(uint256 incidentId, uint256 assessmentRoundId) external;
 
     /**
      * @notice Updates the report URI for an active incident.

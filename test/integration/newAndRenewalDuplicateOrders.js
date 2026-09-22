@@ -177,7 +177,7 @@ describe('Integration: identical NEW + RENEWAL orders through settle and inciden
     // FLB pays 4000e6; the remaining 6000e18 canonical converts to 6000e6 vault
     // asset units at $1 and is requested from the vault
     const VAULT_LEG = ethers.parseUnits('6000', 6)
-    await expect(incidentManager.connect(assessmentApprover).approveCurrentAssessment(1))
+    await expect(incidentManager.connect(assessmentApprover).approveAssessment(1, 1))
       .to.emit(incidentManager, 'IncidentPayoutExecuted')
       .withArgs(
         1, 1, ORDER_PERIOD, ORDER_PERIOD,

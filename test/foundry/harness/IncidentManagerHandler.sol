@@ -109,8 +109,11 @@ contract IncidentManagerHandler is Test {
 
     function approveSpecific(uint256 idSeed) external {
         uint256 id = _pick(idSeed);
+        (IIncidentManager.Incident memory incident, bool exists) = im.getIncident(id);
+        if (!exists) return;
         uint256 earliest = _earliestActive();
-        try im.approveCurrentAssessment(id) {
+
+        try im.approveAssessment(id, incident.currentAssessmentRoundId) {
             if (id != earliest) fifoViolated = true;
             _record(id);
         } catch {}
@@ -118,7 +121,10 @@ contract IncidentManagerHandler is Test {
 
     function reject(uint256 idSeed) external {
         uint256 id = _pick(idSeed);
-        try im.rejectCurrentAssessment(id) {} catch {}
+        (IIncidentManager.Incident memory incident, bool exists) = im.getIncident(id);
+        if (!exists) return;
+
+        try im.rejectAssessment(id, incident.currentAssessmentRoundId) {} catch {}
         _record(id);
     }
 

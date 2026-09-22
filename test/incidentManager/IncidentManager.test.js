@@ -67,6 +67,14 @@ async function submitRoundFor(ctx, incidentId) {
   await ctx.incidentManager.connect(ctx.curator).submitCurrentAssessment(incidentId)
 }
 
+// Helper: cancels submitted round 1, then creates and submits round 2.
+async function cancelRoundAndSubmitNewRound(ctx) {
+  await withSubmittedRound(ctx)
+  await ctx.incidentManager.connect(ctx.curator).cancelCurrentAssessment(1)
+  await ctx.incidentManager.connect(ctx.curator).addAssessmentLosses(1, [ctx.lossOf(1, ctx.marketIdA, 100n)])
+  await ctx.incidentManager.connect(ctx.curator).submitCurrentAssessment(1)
+}
+
 describe('IncidentManager', function () {
   describe('initialization', () => {
     it('emits the initial payout receiver', async () => {
@@ -398,7 +406,7 @@ describe('IncidentManager', function () {
     it('reverts when incident is CLOSED', async () => {
       const ctx = await loadFixture(deployIncidentManager)
       await withSubmittedRound(ctx, { amount: e18(1000), allocated: e18(1000) })
-      await ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(1) // → CLOSED
+      await ctx.incidentManager.connect(ctx.assessmentApprover).approveAssessment(1, 1) // → CLOSED
       await expect(ctx.incidentManager.connect(ctx.configAdmin).updateIncidentReportURI(1, 'ipfs://x'))
         .to.be.revertedWithCustomError(ctx.incidentManager, 'ReportURIUpdateNotAllowed')
     })
@@ -549,7 +557,7 @@ describe('IncidentManager', function () {
       await ctx.setOrderMarket(1, ctx.marketIdA, 1000n, ctx.payoutRecipient1.address)
       await ctx.incidentManager.connect(ctx.curator).addAssessmentLosses(1, [ctx.lossOf(1, ctx.marketIdA, 100n)])
       await ctx.incidentManager.connect(ctx.curator).submitCurrentAssessment(1)
-      await ctx.incidentManager.connect(ctx.assessmentRejecter).rejectCurrentAssessment(1)
+      await ctx.incidentManager.connect(ctx.assessmentRejecter).rejectAssessment(1, 1)
 
       await ctx.setOrderMarket(2, ctx.marketIdA, 1000n, ctx.payoutRecipient1.address)
       const tx = ctx.incidentManager.connect(ctx.curator).addAssessmentLosses(1, [ctx.lossOf(2, ctx.marketIdA, 200n)])
@@ -680,58 +688,70 @@ describe('IncidentManager', function () {
     })
   })
 
-  describe('rejectCurrentAssessment', () => {
+  describe('rejectAssessment', () => {
     it('reverts if called by non-rejecter', async () => {
       const ctx = await loadFixture(deployIncidentManager)
       await withSubmittedRound(ctx)
-      await expect(ctx.incidentManager.connect(ctx.stranger).rejectCurrentAssessment(1))
+      await expect(ctx.incidentManager.connect(ctx.stranger).rejectAssessment(1, 1))
         .to.be.revertedWithCustomError(ctx.incidentManager, 'AccessControlUnauthorizedAccount')
     })
 
     it('reverts when the incident is not UNDER_EVALUATION', async () => {
       const ctx = await loadFixture(deployIncidentManager)
       await ctx.incidentManager.connect(ctx.curator).createIncident(ctx.DEFAULT_CAPTURE_TIMESTAMP, 'A', ctx.refOf('a'))
-      await expect(ctx.incidentManager.connect(ctx.assessmentRejecter).rejectCurrentAssessment(1))
+      await expect(ctx.incidentManager.connect(ctx.assessmentRejecter).rejectAssessment(1, 1))
         .to.be.revertedWithCustomError(ctx.incidentManager, 'InvalidIncidentStatus')
     })
 
     it('reverts when the round is still DRAFT (must be UNDER_EVALUATION to reject)', async () => {
       const ctx = await loadFixture(deployIncidentManager)
       await withDraftRound(ctx)
-      await expect(ctx.incidentManager.connect(ctx.assessmentRejecter).rejectCurrentAssessment(1))
+      await expect(ctx.incidentManager.connect(ctx.assessmentRejecter).rejectAssessment(1, 1))
         .to.be.revertedWithCustomError(ctx.incidentManager, 'InvalidAssessmentRoundStatus')
     })
 
     it('moves a submitted round UNDER_EVALUATION → REJECTED, leaving incident UNDER_EVALUATION', async () => {
       const ctx = await loadFixture(deployIncidentManager)
       await withSubmittedRound(ctx)
-      await expect(ctx.incidentManager.connect(ctx.assessmentRejecter).rejectCurrentAssessment(1))
+      await expect(ctx.incidentManager.connect(ctx.assessmentRejecter).rejectAssessment(1, 1))
         .to.emit(ctx.incidentManager, 'AssessmentRoundRejected')
         .withArgs(1, 1)
       const [incident] = await ctx.incidentManager.getIncident(1)
       expect(incident.status).to.equal(IncidentStatus.UNDER_EVALUATION)
     })
+
+    it('reverts when the specified assessment round is no longer current', async () => {
+      const ctx = await loadFixture(deployIncidentManager)
+      await cancelRoundAndSubmitNewRound(ctx)
+      await expect(ctx.incidentManager.connect(ctx.assessmentRejecter).rejectAssessment(1, 1))
+        .to.be.revertedWithCustomError(ctx.incidentManager, 'InvalidAssessmentRoundId').withArgs(1, 1, 2)
+
+      const [round2] = await ctx.incidentManager.getAssessmentRound(1, 2)
+      expect(round2.status).to.equal(AssessmentRoundStatus.UNDER_EVALUATION)
+      await expect(ctx.incidentManager.connect(ctx.assessmentRejecter).rejectAssessment(1, 2))
+        .to.emit(ctx.incidentManager, 'AssessmentRoundRejected').withArgs(1, 2)
+    })
   })
 
-  describe('approveCurrentAssessment', () => {
+  describe('approveAssessment', () => {
     it('reverts if called by non-approver', async () => {
       const ctx = await loadFixture(deployIncidentManager)
       await withSubmittedRound(ctx)
-      await expect(ctx.incidentManager.connect(ctx.stranger).approveCurrentAssessment(1))
+      await expect(ctx.incidentManager.connect(ctx.stranger).approveAssessment(1, 1))
         .to.be.revertedWithCustomError(ctx.incidentManager, 'AccessControlUnauthorizedAccount')
     })
 
     it('reverts when the incident is not UNDER_EVALUATION', async () => {
       const ctx = await loadFixture(deployIncidentManager)
       await ctx.incidentManager.connect(ctx.curator).createIncident(ctx.DEFAULT_CAPTURE_TIMESTAMP, 'A', ctx.refOf('a'))
-      await expect(ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(1))
+      await expect(ctx.incidentManager.connect(ctx.assessmentApprover).approveAssessment(1, 1))
         .to.be.revertedWithCustomError(ctx.incidentManager, 'InvalidIncidentStatus')
     })
 
     it('reverts when the round has not been submitted (still DRAFT)', async () => {
       const ctx = await loadFixture(deployIncidentManager)
       await withDraftRound(ctx)
-      await expect(ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(1))
+      await expect(ctx.incidentManager.connect(ctx.assessmentApprover).approveAssessment(1, 1))
         .to.be.revertedWithCustomError(ctx.incidentManager, 'InvalidAssessmentRoundStatus')
     })
 
@@ -740,7 +760,7 @@ describe('IncidentManager', function () {
       const total = e18(1000)
       await withSubmittedRound(ctx, { amount: total, allocated: total })
       // No flb funding → flbPayerBalance is 0. price $1, vault asset 18-dec → vaultRequested == total.
-      const tx = ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(1)
+      const tx = ctx.incidentManager.connect(ctx.assessmentApprover).approveAssessment(1, 1)
       await expect(tx)
         .to.emit(ctx.incidentManager, 'AssessmentRoundApproved')
         .withArgs(1, 1, total)
@@ -762,7 +782,7 @@ describe('IncidentManager', function () {
       await withSubmittedRound(ctx, { amount: total, allocated: total })
       await ctx.vault.setCurrentPeriod(ctx.INCIDENT_PERIOD + 1)
 
-      await expect(ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(1))
+      await expect(ctx.incidentManager.connect(ctx.assessmentApprover).approveAssessment(1, 1))
         .to.emit(ctx.incidentManager, 'IncidentPayoutExecuted')
         .withArgs(
           1,
@@ -785,7 +805,7 @@ describe('IncidentManager', function () {
       await withSubmittedRound(ctx, { amount: total, allocated: total })
       await ctx.fundFlb(e6(2000)) // buffer holds 2000 USDC (6-dec), more than enough
 
-      const tx = ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(1)
+      const tx = ctx.incidentManager.connect(ctx.assessmentApprover).approveAssessment(1, 1)
       // 1000 canonical → 1000e6 flb; remainder 0 → no vault payout.
       await expect(tx)
         .to.emit(ctx.incidentManager, 'IncidentPayoutExecuted')
@@ -804,7 +824,7 @@ describe('IncidentManager', function () {
       await withSubmittedRound(ctx, { amount: total, allocated: total })
       await ctx.fundFlb(e6(400)) // buffer covers 400, remainder 600 to the vault
 
-      const tx = ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(1)
+      const tx = ctx.incidentManager.connect(ctx.assessmentApprover).approveAssessment(1, 1)
       await expect(tx)
         .to.emit(ctx.incidentManager, 'IncidentPayoutExecuted')
         .withArgs(1, 1, ctx.INCIDENT_PERIOD, ctx.INCIDENT_PERIOD, ctx.payoutReceiver.address, ctx.firstLossBufferPayer.address,
@@ -822,7 +842,7 @@ describe('IncidentManager', function () {
       await withSubmittedRound(ctx, { amount: total, allocated: total })
       await ctx.vault.setPayoutReturn(e18(900)) // vault honours only 900 of the 1000 requested
 
-      await ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(1)
+      await ctx.incidentManager.connect(ctx.assessmentApprover).approveAssessment(1, 1)
       const [incident] = await ctx.incidentManager.getIncident(1)
       expect(incident.vaultPaidAmount).to.equal(e18(900))
       expect(incident.status).to.equal(IncidentStatus.CLOSED)
@@ -834,7 +854,7 @@ describe('IncidentManager', function () {
       await withSubmittedRound(ctx, { amount: total, allocated: total })
       await ctx.fundFlb(e6(1000)) // buffer has balance, but totalAssessmentLoss is too small to draw from it
 
-      const tx = ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(1)
+      const tx = ctx.incidentManager.connect(ctx.assessmentApprover).approveAssessment(1, 1)
       // flbAmount 0, vault asset is 18-dec so vaultRequested == 1.
       await expect(tx)
         .to.emit(ctx.incidentManager, 'IncidentPayoutExecuted')
@@ -847,7 +867,7 @@ describe('IncidentManager', function () {
       const ctx = await loadFixture(deployIncidentManager)
       await withSubmittedRound(ctx, { amount: e18(10), allocated: e18(10) })
       await ctx.vault.setCurrentPeriod(ctx.INCIDENT_PERIOD + 2) // currentPeriod > period + 1
-      await expect(ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(1))
+      await expect(ctx.incidentManager.connect(ctx.assessmentApprover).approveAssessment(1, 1))
         .to.be.revertedWithCustomError(ctx.incidentManager, 'IncidentPayoutWindowExpired')
         .withArgs(1, ctx.INCIDENT_PERIOD)
     })
@@ -858,7 +878,7 @@ describe('IncidentManager', function () {
       const ctx = await deployIncidentManager({ vaultAssetDecimals: 6 })
       const total = 1n
       await withSubmittedRound(ctx, { amount: total, allocated: total })
-      await expect(ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(1))
+      await expect(ctx.incidentManager.connect(ctx.assessmentApprover).approveAssessment(1, 1))
         .to.be.revertedWithCustomError(ctx.incidentManager, 'PayoutRoundsToZero')
     })
 
@@ -869,7 +889,7 @@ describe('IncidentManager', function () {
       await withSubmittedRound(ctx, { amount: total, allocated: total })
       await ctx.fundFlb(e6(1000))
 
-      const tx = ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(1)
+      const tx = ctx.incidentManager.connect(ctx.assessmentApprover).approveAssessment(1, 1)
       await expect(tx)
         .to.emit(ctx.incidentManager, 'IncidentPayoutExecuted')
         .withArgs(1, 1, ctx.INCIDENT_PERIOD, ctx.INCIDENT_PERIOD, ctx.payoutReceiver.address, ctx.firstLossBufferPayer.address,
@@ -886,9 +906,21 @@ describe('IncidentManager', function () {
       // PriceFeedTooOld is declared in the PriceFeed library, so match against its interface.
       const PriceFeedLib = await ethers.getContractFactory('PriceFeed')
       await ctx.priceFeed.setLatestRoundData(1, ctx.price, 1, 1, 1)
-      await expect(ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(1))
+      await expect(ctx.incidentManager.connect(ctx.assessmentApprover).approveAssessment(1, 1))
         .to.be.revertedWithCustomError(PriceFeedLib, 'PriceFeedTooOld')
         .withArgs(1, ctx.maxPriceAge)
+    })
+
+    it('reverts when the specified assessment round is no longer current', async () => {
+      const ctx = await loadFixture(deployIncidentManager)
+      await cancelRoundAndSubmitNewRound(ctx)
+      await expect(ctx.incidentManager.connect(ctx.assessmentApprover).approveAssessment(1, 1))
+        .to.be.revertedWithCustomError(ctx.incidentManager, 'InvalidAssessmentRoundId').withArgs(1, 1, 2)
+
+      const [round2] = await ctx.incidentManager.getAssessmentRound(1, 2)
+      expect(round2.status).to.equal(AssessmentRoundStatus.UNDER_EVALUATION)
+      await expect(ctx.incidentManager.connect(ctx.assessmentApprover).approveAssessment(1, 2))
+        .to.emit(ctx.incidentManager, 'AssessmentRoundApproved').withArgs(1, 2, 100)
     })
   })
 
@@ -1160,22 +1192,22 @@ describe('IncidentManager', function () {
       await submitRoundFor(ctx, 2)
 
       // Incident 2 (earliest capture) must be approved first
-      await expect(ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(1))
+      await expect(ctx.incidentManager.connect(ctx.assessmentApprover).approveAssessment(1, 1))
         .to.be.revertedWithCustomError(ctx.incidentManager, 'IncidentApprovalOutOfOrder')
         .withArgs(1, 2)
 
-      await ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(2)
+      await ctx.incidentManager.connect(ctx.assessmentApprover).approveAssessment(2, 1)
 
       // With incident 2 closed, the ordering scan skips it and incident 1 becomes approvable
-      await ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(1)
+      await ctx.incidentManager.connect(ctx.assessmentApprover).approveAssessment(1, 1)
 
       const [incident1] = await ctx.incidentManager.getIncident(1)
       expect(incident1.status).to.equal(IncidentStatus.CLOSED)
     })
 
-    it('reverts approveCurrentAssessment without ASSESSMENT_APPROVER_ROLE', async () => {
+    it('reverts approveAssessment without ASSESSMENT_APPROVER_ROLE', async () => {
       const ctx = await loadFixture(deployIncidentManager)
-      await expect(ctx.incidentManager.connect(ctx.stranger).approveCurrentAssessment(1))
+      await expect(ctx.incidentManager.connect(ctx.stranger).approveAssessment(1, 1))
         .to.be.revertedWithCustomError(ctx.incidentManager, 'AccessControlUnauthorizedAccount')
     })
 
@@ -1190,7 +1222,7 @@ describe('IncidentManager', function () {
       await ctx.incidentManager.connect(ctx.curator).addAssessmentLosses(1, [ctx.lossOf(1, ctx.marketIdA, 100n)])
       await ctx.incidentManager.connect(ctx.curator).submitCurrentAssessment(1)
 
-      await ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(1)
+      await ctx.incidentManager.connect(ctx.assessmentApprover).approveAssessment(1, 1)
 
       const [incident] = await ctx.incidentManager.getIncident(1)
       expect(incident.status).to.equal(IncidentStatus.CLOSED)
@@ -1215,7 +1247,7 @@ describe('IncidentManager', function () {
       const ctx = await loadFixture(deployIncidentManager)
       await ctx.incidentManager.connect(ctx.curator).createIncident(ctx.DEFAULT_CAPTURE_TIMESTAMP, 'A', ctx.refOf('a'))
       await submitRoundFor(ctx, 1)
-      await ctx.incidentManager.connect(ctx.assessmentRejecter).rejectCurrentAssessment(1)
+      await ctx.incidentManager.connect(ctx.assessmentRejecter).rejectAssessment(1, 1)
 
       const tx = ctx.incidentManager.connect(ctx.incidentInvalidator).cancelIncident(1, 'invalid data')
       await expect(tx).to.emit(ctx.incidentManager, 'IncidentInvalidated').withArgs(1, 'invalid data')
@@ -1327,13 +1359,13 @@ describe('IncidentManager', function () {
       await reentrant.mint(ctx.firstLossBufferPayer.address, e18(1000))
       await reentrant.connect(ctx.firstLossBufferPayer).approve(ctx.incidentManager.target, e18(1000))
 
-      // The token re-enters approveCurrentAssessment as a role holder, so the
+      // The token re-enters approveAssessment as a role holder, so the
       // reentrancy guard (and not the role check) is what stops it
       await ctx.incidentManager.connect(ctx.admin).grantRole(ROLES.ASSESSMENT_APPROVER_ROLE, reentrant.target)
       await reentrant.setVault(ctx.incidentManager.target)
-      await reentrant.setReentrantCall(ctx.incidentManager.interface.encodeFunctionData('approveCurrentAssessment', [1]))
+      await reentrant.setReentrantCall(ctx.incidentManager.interface.encodeFunctionData('approveAssessment', [1, 1]))
 
-      await expect(ctx.incidentManager.connect(ctx.assessmentApprover).approveCurrentAssessment(1))
+      await expect(ctx.incidentManager.connect(ctx.assessmentApprover).approveAssessment(1, 1))
         .to.be.revertedWithCustomError(ctx.incidentManager, 'ReentrancyGuardReentrantCall')
     })
   })
