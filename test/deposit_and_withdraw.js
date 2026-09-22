@@ -200,3 +200,36 @@ describe('Zero-share deposit guard', function() {
     expect(await firelight_vault.balanceOf(users[1].address)).to.equal(1n)
   })
 })
+
+describe('ERC-4626 maximum deposit limits', function() {
+  it('allows minting the positive amount returned by maxMint after the share price increases', async () => {
+    const ctx = await loadFixture(deployVault.bind(null, { initial_deposit_limit: 6n }))
+    const user = ctx.users[0]
+
+    await ctx.utils.mintAndApprove(7n, user)
+    await ctx.firelight_vault.connect(user).deposit(1n, user.address)
+    // A direct transfer models rewards entering the vault without minting shares.
+    await ctx.token_contract.connect(user).transfer(ctx.firelight_vault.target, 1n)
+
+    const maxMint = await ctx.firelight_vault.maxMint(user.address)
+
+    await expect(ctx.firelight_vault.connect(user).mint(maxMint, user.address)).not.to.be.reverted
+    expect(maxMint).to.equal(2n)
+  })
+
+  it('allows depositing the amount returned by maxDeposit when it is positive', async () => {
+    const ctx = await loadFixture(deployVault.bind(null, { initial_deposit_limit: 2n }))
+    const user = ctx.users[0]
+
+    await ctx.utils.mintAndApprove(2n, user)
+    // This leaves one asset of headroom, which is too little to mint a share.
+    await ctx.token_contract.connect(user).transfer(ctx.firelight_vault.target, 1n)
+
+    const maxDeposit = await ctx.firelight_vault.maxDeposit(user.address)
+
+    if (maxDeposit > 0n) {
+      await expect(ctx.firelight_vault.connect(user).deposit(maxDeposit, user.address)).not.to.be.reverted
+    }
+    expect(maxDeposit).to.equal(0n)
+  })
+})

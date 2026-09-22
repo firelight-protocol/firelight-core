@@ -372,9 +372,11 @@ contract FirelightVault is
         uint256 assets = totalAssets();
         if (isBlocklisted[receiver] || paused() || _hasActiveIncident() || assets > depositLimit) {
             return 0;
-        } else {
-            return depositLimit - assets;
         }
+
+        uint256 remaining = depositLimit - assets;
+        if (previewDeposit(remaining) == 0) return 0;
+        return remaining;
     }
 
     /**
@@ -383,13 +385,7 @@ contract FirelightVault is
      * @return amount Maximum amount of shares that can be minted.
      */
     function maxMint(address receiver) public view override returns (uint256 amount) {
-        uint256 shares = totalSupply();
-        uint256 sharesLimit = convertToShares(depositLimit);
-        if (isBlocklisted[receiver] || paused() || _hasActiveIncident() || shares > sharesLimit) {
-            return 0;
-        } else {
-            return sharesLimit - shares;
-        }
+        return previewDeposit(maxDeposit(receiver));
     }
 
     /**
