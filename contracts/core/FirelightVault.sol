@@ -102,7 +102,7 @@ contract FirelightVault is
     event CompleteWithdraw(address indexed receiver, uint256 assets, uint256 period);
 
     /**
-     * @notice Emitted when a user with RESCUER_ROLE successfully rescues shares from blocklisted address.
+     * @notice Emitted when a user with RESCUER_ROLE successfully rescues shares from a blocklisted address.
      * @param from The blocklisted address.
      * @param to The beneficiary of the rescued shares.
      * @param rescuedShares The amount of shares rescued.
@@ -110,7 +110,7 @@ contract FirelightVault is
     event SharesRescuedFromBlocklisted(address from, address to, uint256 rescuedShares);
 
     /**
-     * @notice Emitted when a user with RESCUER_ROLE successfully rescues pending withdrawals 
+     * @notice Emitted when a user with RESCUER_ROLE successfully rescues pending withdrawals
      * from a blocklisted address.
      * @param from The blocklisted address.
      * @param to The beneficiary of the rescued withdrawals.
@@ -119,8 +119,20 @@ contract FirelightVault is
      */
     event WithdrawRescuedFromBlocklisted(address from, address to, uint256[] periods, uint256[] rescuedShares);
 
-    //TODO:add natspec
+    /**
+     * @notice Emitted when an incident payout is processed, including when no assets can be paid.
+     * @param to The allowlisted payout receiver.
+     * @param requestedAmount The requested payout amount, in vault asset units.
+     * @param paidAmount The amount actually transferred, which may be less than requested or zero.
+     * @param captureTimestamp The incident capture timestamp that determines the covered period and payout window.
+     */
     event PayoutExecuted(address indexed to, uint256 requestedAmount, uint256 paidAmount, uint48 captureTimestamp);
+
+    /**
+     * @notice Emitted when a period's active incident flag is set.
+     * @param period The period whose active incident flag was set.
+     * @param active Whether the period has an active incident.
+     */
     event ActiveIncidentUpdated(uint256 indexed period, bool active);
 
     /**
@@ -153,24 +165,63 @@ contract FirelightVault is
      */
     event TotalAssetsCheckpointed(uint256 totalAssets);
 
+    /// @notice An account involved in the operation is blocklisted.
     error BlocklistedAddress();
+
+    /// @notice The account is not blocklisted.
     error NotBlocklistedAddress();
+
+    /// @notice A deposit or mint would increase total assets above the deposit limit.
     error DepositLimitExceeded();
+
+    /// @notice The deposit limit is zero.
     error InvalidDepositLimit();
+
+    /// @notice The period configuration epoch is too early or not aligned with a period boundary.
     error InvalidPeriodConfigurationEpoch();
+
+    /// @notice The period duration is outside the allowed range or not a multiple of SMALLEST_PERIOD_DURATION.
     error InvalidPeriodConfigurationDuration();
+
+    /// @notice The account has insufficient shares for the withdrawal or no shares to rescue.
     error InsufficientShares();
+
+    /// @notice The underlying asset address is zero.
     error InvalidAssetAddress();
+
+    /// @notice The default admin address is zero.
     error InvalidAdminAddress();
+
+    /// @notice An account address required by the operation is zero.
     error InvalidAddress();
+
+    /// @notice The requested amount is zero or converts to zero shares or assets.
     error InvalidAmount();
+
+    /// @notice No period configuration applies to the query, or the withdrawal period has not ended.
     error InvalidPeriod();
+
+    /// @notice A future period configuration is already scheduled.
     error CurrentPeriodConfigurationNotLast();
+
+    /// @notice The array of withdrawal periods to rescue is empty.
     error InvalidArrayLength();
+
+    /// @notice A withdrawal for the account and period has already been claimed.
+    /// @param period The period whose withdrawal has already been claimed.
     error AlreadyClaimedPeriod(uint256 period);
+
+    /// @notice The account has no withdrawal shares or claimable assets for the period.
+    /// @param period The period with no withdrawal shares or claimable assets.
     error NoWithdrawalAmount(uint256 period);
+
+    /// @notice The payout receiver is not on the payout allowlist.
     error AccountNotAllowlisted();
+
+    /// @notice The capture period is neither the current period nor the previous period.
     error InvalidCapturePeriod();
+
+    /// @notice An active incident in the current or previous period blocks deposits and mints.
     error CurrentPeriodHasActiveIncident();
 
     modifier notBlocklisted(address account) {

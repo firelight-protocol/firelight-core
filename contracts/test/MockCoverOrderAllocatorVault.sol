@@ -158,6 +158,7 @@ contract MockCoverOrderAllocatorVault is IFirelightVault {
     function withdrawSharesOf(uint256, address) external pure override returns (uint256) { return 0; }
     function isWithdrawClaimed(uint256, address) external pure override returns (bool) { return false; }
     function isBlocklisted(address) external pure override returns (bool) { return false; }
+    function isPayoutAllowlisted(address) external pure override returns (bool) { return false; }
 
     // -------------------------------------------------------------------------
     // Initialization stub
@@ -242,6 +243,13 @@ contract MockCoverOrderAllocatorVault is IFirelightVault {
 
     function addToBlocklist(address) external override {}
     function removeFromBlocklist(address) external override {}
+
+    // -------------------------------------------------------------------------
+    // Payout allowlist stubs
+    // -------------------------------------------------------------------------
+
+    function addToPayoutAllowlist(address) external override {}
+    function removeFromPayoutAllowlist(address) external override {}
 
     // -------------------------------------------------------------------------
     // Rescue stubs
