@@ -465,7 +465,7 @@ interface ICoverOrderAllocator {
     /// @notice Thrown when the price feed adapter decimals are outside [6, 18].
     /// @param decimals Reported adapter decimals.
     error InvalidPriceFeedDecimals(uint8 decimals);
-    /// @notice Thrown when a concentration input is invalid (zero chainId/protocol or bps > 100%).
+    /// @notice Thrown when a concentration input is invalid (empty protocol or bps > 100%).
     error InvalidProtocolConcentration();
     /// @notice Thrown when the configured minimum order-market cover amount is zero.
     error InvalidMinOrderMarketCoverAmount();
@@ -710,7 +710,7 @@ interface ICoverOrderAllocator {
     /// @return The set of supported premium token addresses.
     function getSupportedPremiumTokens() external view returns (address[] memory);
 
-    /// @notice Current capacity configuration.
+    /// @notice Effective capacity configuration at currentPeriod() + 1.
     function getEffectiveCapacityConfig() external view returns (CapacityConfig memory);
 
     /// @notice get active capacity config at a given period

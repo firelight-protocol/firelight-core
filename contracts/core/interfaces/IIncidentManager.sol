@@ -271,7 +271,8 @@ interface IIncidentManager {
     error InvalidIncidentRef();
 
     /**
-     * @notice Reverts when the vault resolves the capture timestamp to a period outside the payout window.
+     * @notice Reverts when the vault resolves the capture timestamp to a period outside the
+     * payout window, or when the capture timestamp is later than the current block timestamp.
      * @param captureTimestamp Incident capture timestamp.
      * @param capturePeriod Vault period derived from the capture timestamp.
      * @param currentPeriod Current vault period.
@@ -308,7 +309,9 @@ interface IIncidentManager {
     error InvalidIncidentStatus(uint256 incidentId, IncidentStatus currentStatus);
 
     /**
-     * @notice Reverts when an incident can no longer be paid because its payout window expired.
+     * @notice Reverts when an incident's payout window has expired. Blocks every state
+     * transition on the incident, including confirmation, assessment, all three
+     * cancellation paths, and report URI updates.
      * @param incidentId Expired incident id.
      * @param incidentPeriod Vault period affected by the incident.
      */
@@ -526,7 +529,8 @@ interface IIncidentManager {
 
     /**
      * @notice Updates the report URI for an active incident.
-     * The report URI cannot be updated after the incident is CLOSED or CANCELED.
+     * The report URI cannot be updated after the incident is CLOSED or CANCELED, or after its
+     * payout window has expired.
      * @param incidentId Incident id whose report URI is updated.
      * @param reportURI New external report URI.
      */
@@ -563,7 +567,7 @@ interface IIncidentManager {
     function priceFeedAdapter() external view returns (IAggregatorV3);
 
     /**
-     * @notice Returns the Firelight vault used for active-incident tracking and payout execution.
+     * @notice Returns the Firelight vault used for active incident tracking and payout execution.
      * @return Firelight vault contract.
      */
     function vault() external view returns (IFirelightVault);

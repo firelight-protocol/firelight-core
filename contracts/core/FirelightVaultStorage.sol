@@ -58,7 +58,7 @@ abstract contract FirelightVaultStorage {
     }
 
     // solhint-disable-next-line max-line-length
-    /// @notice Array of period configurations consisting of an starting timestamp (epoch), starting period number (startingPeriod) and period duration (duration).
+    /// @notice Array of period configurations consisting of a starting timestamp (epoch), starting period number (startingPeriod) and period duration (duration).
     PeriodConfiguration[] public periodConfigurations;
 
     /// @notice Total shares allocated for withdrawals in a given period.

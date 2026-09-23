@@ -820,7 +820,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
      *          in the same period, or if the curator excludes the affected orders from the
      *          matching tree (they will remain PENDING and can be cancelled).
      *
-     *      A future hard mitigation would be to deferr decreases to currentPeriod() + 2,
+     *      A future hard mitigation would be to defer decreases to currentPeriod() + 2,
      *      preserving the original cap for orders already on the book; not implemented today
      *      so that the curator retains immediate control.
      */

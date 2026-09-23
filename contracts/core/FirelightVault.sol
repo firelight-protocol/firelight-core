@@ -102,7 +102,7 @@ contract FirelightVault is
     event CompleteWithdraw(address indexed receiver, uint256 assets, uint256 period);
 
     /**
-     * @notice Emitted when a user with RESCUER_ROLE successfully rescues shares from a blocklisted address.
+     * @notice Emitted when a user with RESCUER_ROLE successfully rescues shares from blocklisted address.
      * @param from The blocklisted address.
      * @param to The beneficiary of the rescued shares.
      * @param rescuedShares The amount of shares rescued.
@@ -110,7 +110,8 @@ contract FirelightVault is
     event SharesRescuedFromBlocklisted(address from, address to, uint256 rescuedShares);
 
     /**
-     * @notice Emitted when a user with RESCUER_ROLE successfully rescues a pending withdrawal from blocklisted address.
+     * @notice Emitted when a user with RESCUER_ROLE successfully rescues pending withdrawals 
+     * from a blocklisted address.
      * @param from The blocklisted address.
      * @param to The beneficiary of the rescued withdrawals.
      * @param periods The array of periods rescued.
@@ -406,7 +407,7 @@ contract FirelightVault is
      * @notice Returns the maximum amount of Vault shares that can be redeemed from the owner balance in the Vault,
      * through a redeem call.
      * @param owner The owner of the shares.
-     * @param amount Maximum amount of shares that can be redeemed.
+     * @return amount Maximum amount of shares that can be redeemed.
      */
     function maxRedeem(address owner) public view override returns (uint256 amount) {
         if (isBlocklisted[owner] || paused()) {
@@ -635,7 +636,7 @@ contract FirelightVault is
     }
 
     /**
-     * @notice Deposits assets into the vault and receive shares, with blocklist and pause checks.
+     * @notice Deposits assets into the vault and receives shares, with blocklist, active incident and pause checks.
      * @param assets Amount of assets to deposit.
      * @param receiver Address receiving the shares.
      * @return Amount of shares received.
@@ -671,7 +672,8 @@ contract FirelightVault is
     }
 
     /**
-     * @notice Mints shares by depositing the required amount of assets into the vault, with blocklist and pause checks.
+     * @notice Mints shares by depositing the required amount of assets into the vault,
+     * with blocklist, active incident and pause checks.
      * @param shares Amount of shares to mint.
      * @param receiver Address receiving the shares.
      * @return Amount of assets deposited.
@@ -1114,8 +1116,8 @@ contract FirelightVault is
     }
 
     /// @dev True while an incident is active in the current period or the previous one. The previous period is
-    /// included because a claim captured then is still payable this period, so deposits stay blocked until that
-    /// payout window closes; otherwise fresh deposits would back unresolved exposure.
+    /// included because a claim captured then is still payable this period, so deposits stay blocked through the
+    /// following period, until that payout window closes; otherwise fresh deposits would back unresolved exposure.
     function _hasActiveIncident() internal view returns (bool) {
         uint256 period = currentPeriod();
         return hasActiveIncident[period] || (period > 0 && hasActiveIncident[period - 1]);
