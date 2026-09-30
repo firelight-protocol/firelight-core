@@ -400,7 +400,10 @@ contract IncidentManager is IIncidentManager, AccessControlUpgradeable, Reentran
     }
 
     /// @inheritdoc IIncidentManager
-    function approveCurrentAssessment(uint256 incidentId) external onlyRole(ASSESSMENT_APPROVER_ROLE) nonReentrant {
+    function approveAssessment(
+        uint256 incidentId,
+        uint256 assessmentRoundId
+    ) external onlyRole(ASSESSMENT_APPROVER_ROLE) nonReentrant {
         Incident storage incident = _activeIncidentWithStatus(incidentId, IncidentStatus.UNDER_EVALUATION);
 
         IncidentManagerStorage storage $ = _getStorage();
@@ -410,20 +413,24 @@ contract IncidentManager is IIncidentManager, AccessControlUpgradeable, Reentran
             revert IncidentApprovalOutOfOrder(incidentId, expectedIncidentId);
         }
 
-        (uint256 assessmentRoundId, AssessmentRound storage assessmentRound) = _setCurrentAssessmentStatus(
+        (uint256 currentAssessmentRoundId, AssessmentRound storage assessmentRound) = _setCurrentAssessmentStatus(
             incidentId,
             incident,
             AssessmentRoundStatus.UNDER_EVALUATION,
             AssessmentRoundStatus.APPROVED
         );
 
+        if (assessmentRoundId != currentAssessmentRoundId) {
+            revert InvalidAssessmentRoundId(incidentId, assessmentRoundId, currentAssessmentRoundId);
+        }
+
         uint256 totalAssessmentLoss = assessmentRound.totalAssessmentLoss;
-        emit AssessmentRoundApproved(incidentId, assessmentRoundId, totalAssessmentLoss);
+        emit AssessmentRoundApproved(incidentId, currentAssessmentRoundId, totalAssessmentLoss);
 
         uint256 vaultPaidAmount = _executePayout(
             $,
             incidentId,
-            assessmentRoundId,
+            currentAssessmentRoundId,
             incident.period,
             incident.captureTimestamp,
             totalAssessmentLoss
@@ -439,17 +446,24 @@ contract IncidentManager is IIncidentManager, AccessControlUpgradeable, Reentran
     }
 
     /// @inheritdoc IIncidentManager
-    function rejectCurrentAssessment(uint256 incidentId) external onlyRole(ASSESSMENT_REJECTER_ROLE) {
+    function rejectAssessment(
+        uint256 incidentId,
+        uint256 assessmentRoundId
+    ) external onlyRole(ASSESSMENT_REJECTER_ROLE) {
         Incident storage incident = _activeIncidentWithStatus(incidentId, IncidentStatus.UNDER_EVALUATION);
 
-        (uint256 assessmentRoundId, ) = _setCurrentAssessmentStatus(
+        (uint256 currentAssessmentRoundId, ) = _setCurrentAssessmentStatus(
             incidentId,
             incident,
             AssessmentRoundStatus.UNDER_EVALUATION,
             AssessmentRoundStatus.REJECTED
         );
 
-        emit AssessmentRoundRejected(incidentId, assessmentRoundId);
+        if (assessmentRoundId != currentAssessmentRoundId) {
+            revert InvalidAssessmentRoundId(incidentId, assessmentRoundId, currentAssessmentRoundId);
+        }
+
+        emit AssessmentRoundRejected(incidentId, currentAssessmentRoundId);
     }
 
     // -- admin functions --

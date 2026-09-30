@@ -1,0 +1,5 @@
+@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/
+@openzeppelin/contracts-upgradeable/=node_modules/@openzeppelin/contracts-upgradeable/
+flare-smart-contracts/=node_modules/flare-smart-contracts/
+flare-smart-contracts-v2/=node_modules/flare-smart-contracts-v2/
+forge-std/=lib/forge-std/src/

@@ -22,6 +22,7 @@ contract MockCoverOrderAllocatorVault is IFirelightVault {
     bool private _hasSnapshot;
     uint256 private _totalAssetsAtSnapshot;
     mapping(uint256 => PeriodConfiguration) private _periodConfigs;
+    mapping(uint48 => uint256) private _periodAtTimestamp;
 
     // -------------------------------------------------------------------------
     // Test setters
@@ -51,6 +52,9 @@ contract MockCoverOrderAllocatorVault is IFirelightVault {
     }
     function setPeriodConfiguration(uint256 periodNumber, PeriodConfiguration calldata cfg) external {
         _periodConfigs[periodNumber] = cfg;
+    }
+    function setPeriodAtTimestamp(uint48 timestamp, uint256 period) external {
+        _periodAtTimestamp[timestamp] = period;
     }
 
     // -------------------------------------------------------------------------
@@ -126,6 +130,7 @@ contract MockCoverOrderAllocatorVault is IFirelightVault {
     function PAUSE_ROLE() external pure override returns (bytes32) { return bytes32(0); }
     function PERIOD_CONFIGURATION_UPDATE_ROLE() external pure override returns (bytes32) { return bytes32(0); }
     function SMALLEST_PERIOD_DURATION() external pure override returns (uint48) { return 0; }
+    function MAX_PERIOD_DURATION() external pure override returns (uint48) { return 0; }
     function PAYOUT_ALLOWLIST_ROLE() external pure override returns (bytes32) { return bytes32(0); }
     function PAYOUT_ROLE() external pure override returns (bytes32) { return bytes32(0); }
     function INCIDENT_ROLE() external pure override returns (bytes32) { return bytes32(0); }
@@ -153,6 +158,7 @@ contract MockCoverOrderAllocatorVault is IFirelightVault {
     function withdrawSharesOf(uint256, address) external pure override returns (uint256) { return 0; }
     function isWithdrawClaimed(uint256, address) external pure override returns (bool) { return false; }
     function isBlocklisted(address) external pure override returns (bool) { return false; }
+    function isPayoutAllowlisted(address) external pure override returns (bool) { return false; }
 
     // -------------------------------------------------------------------------
     // Initialization stub
@@ -173,7 +179,9 @@ contract MockCoverOrderAllocatorVault is IFirelightVault {
         return pc;
     }
 
-    function periodAtTimestamp(uint48) external pure override returns (uint256) { return 0; }
+    function periodAtTimestamp(uint48 timestamp) external view override returns (uint256) {
+        return _periodAtTimestamp[timestamp];
+    }
 
     function currentPeriodConfiguration()
         external
@@ -235,6 +243,13 @@ contract MockCoverOrderAllocatorVault is IFirelightVault {
 
     function addToBlocklist(address) external override {}
     function removeFromBlocklist(address) external override {}
+
+    // -------------------------------------------------------------------------
+    // Payout allowlist stubs
+    // -------------------------------------------------------------------------
+
+    function addToPayoutAllowlist(address) external override {}
+    function removeFromPayoutAllowlist(address) external override {}
 
     // -------------------------------------------------------------------------
     // Rescue stubs

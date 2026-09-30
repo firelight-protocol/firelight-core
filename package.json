@@ -10,7 +10,7 @@
     "format": "prettier --write 'contracts/**/*.sol'",
     "format:check": "prettier --check 'contracts/**/*.sol'",
     "postinstall": "npx patch-package",
-    "test": "npx hardhat test"
+    "test": "npx hardhat test && forge test"
   },
   "dependencies": {
     "abi-decoder": "^2.4.0",

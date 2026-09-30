@@ -39,6 +39,9 @@ abstract contract FirelightVaultStorage {
     /// @notice Minimum period duration in seconds.
     uint48 public constant SMALLEST_PERIOD_DURATION = 1 days;
 
+    /// @notice Maximum period duration in seconds.
+    uint48 public constant MAX_PERIOD_DURATION = 90 days;
+
     /// @notice The maximum total amount of assets that can be deposited into the vault.
     uint256 public depositLimit;
 
@@ -55,7 +58,7 @@ abstract contract FirelightVaultStorage {
     }
 
     // solhint-disable-next-line max-line-length
-    /// @notice Array of period configurations consisting of an starting timestamp (epoch), starting period number (startingPeriod) and period duration (duration).
+    /// @notice Array of period configurations consisting of a starting timestamp (epoch), starting period number (startingPeriod) and period duration (duration).
     PeriodConfiguration[] public periodConfigurations;
 
     /// @notice Total shares allocated for withdrawals in a given period.

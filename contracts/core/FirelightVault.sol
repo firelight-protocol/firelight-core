@@ -110,7 +110,8 @@ contract FirelightVault is
     event SharesRescuedFromBlocklisted(address from, address to, uint256 rescuedShares);
 
     /**
-     * @notice Emitted when a user with RESCUER_ROLE successfully rescues a pending withdrawal from blocklisted address.
+     * @notice Emitted when a user with RESCUER_ROLE successfully rescues pending withdrawals
+     * from a blocklisted address.
      * @param from The blocklisted address.
      * @param to The beneficiary of the rescued withdrawals.
      * @param periods The array of periods rescued.
@@ -118,8 +119,20 @@ contract FirelightVault is
      */
     event WithdrawRescuedFromBlocklisted(address from, address to, uint256[] periods, uint256[] rescuedShares);
 
-    //TODO:add natspec
+    /**
+     * @notice Emitted when an incident payout is processed, including when no assets can be paid.
+     * @param to The allowlisted payout receiver.
+     * @param requestedAmount The requested payout amount, in vault asset units.
+     * @param paidAmount The amount actually transferred, which may be less than requested or zero.
+     * @param captureTimestamp The incident capture timestamp that determines the covered period and payout window.
+     */
     event PayoutExecuted(address indexed to, uint256 requestedAmount, uint256 paidAmount, uint48 captureTimestamp);
+
+    /**
+     * @notice Emitted when a period's active incident flag is set.
+     * @param period The period whose active incident flag was set.
+     * @param active Whether the period has an active incident.
+     */
     event ActiveIncidentUpdated(uint256 indexed period, bool active);
 
     /**
@@ -152,24 +165,63 @@ contract FirelightVault is
      */
     event TotalAssetsCheckpointed(uint256 totalAssets);
 
+    /// @notice An account involved in the operation is blocklisted.
     error BlocklistedAddress();
+
+    /// @notice The account is not blocklisted.
     error NotBlocklistedAddress();
+
+    /// @notice A deposit or mint would increase total assets above the deposit limit.
     error DepositLimitExceeded();
+
+    /// @notice The deposit limit is zero.
     error InvalidDepositLimit();
+
+    /// @notice The period configuration epoch is too early or not aligned with a period boundary.
     error InvalidPeriodConfigurationEpoch();
+
+    /// @notice The period duration is outside the allowed range or not a multiple of SMALLEST_PERIOD_DURATION.
     error InvalidPeriodConfigurationDuration();
+
+    /// @notice The account has insufficient shares for the withdrawal or no shares to rescue.
     error InsufficientShares();
+
+    /// @notice The underlying asset address is zero.
     error InvalidAssetAddress();
+
+    /// @notice The default admin address is zero.
     error InvalidAdminAddress();
+
+    /// @notice An account address required by the operation is zero.
     error InvalidAddress();
+
+    /// @notice The requested amount is zero or converts to zero shares or assets.
     error InvalidAmount();
+
+    /// @notice No period configuration applies to the query, or the withdrawal period has not ended.
     error InvalidPeriod();
+
+    /// @notice A future period configuration is already scheduled.
     error CurrentPeriodConfigurationNotLast();
+
+    /// @notice The array of withdrawal periods to rescue is empty.
     error InvalidArrayLength();
+
+    /// @notice A withdrawal for the account and period has already been claimed.
+    /// @param period The period whose withdrawal has already been claimed.
     error AlreadyClaimedPeriod(uint256 period);
+
+    /// @notice The account has no withdrawal shares or claimable assets for the period.
+    /// @param period The period with no withdrawal shares or claimable assets.
     error NoWithdrawalAmount(uint256 period);
+
+    /// @notice The payout receiver is not on the payout allowlist.
     error AccountNotAllowlisted();
+
+    /// @notice The capture period is neither the current period nor the previous period.
     error InvalidCapturePeriod();
+
+    /// @notice An active incident in the current or previous period blocks deposits and mints.
     error CurrentPeriodHasActiveIncident();
 
     modifier notBlocklisted(address account) {
@@ -372,9 +424,11 @@ contract FirelightVault is
         uint256 assets = totalAssets();
         if (isBlocklisted[receiver] || paused() || _hasActiveIncident() || assets > depositLimit) {
             return 0;
-        } else {
-            return depositLimit - assets;
         }
+
+        uint256 remaining = depositLimit - assets;
+        if (previewDeposit(remaining) == 0) return 0;
+        return remaining;
     }
 
     /**
@@ -383,13 +437,7 @@ contract FirelightVault is
      * @return amount Maximum amount of shares that can be minted.
      */
     function maxMint(address receiver) public view override returns (uint256 amount) {
-        uint256 shares = totalSupply();
-        uint256 sharesLimit = convertToShares(depositLimit);
-        if (isBlocklisted[receiver] || paused() || _hasActiveIncident() || shares > sharesLimit) {
-            return 0;
-        } else {
-            return sharesLimit - shares;
-        }
+        return previewDeposit(maxDeposit(receiver));
     }
 
     /**
@@ -410,13 +458,14 @@ contract FirelightVault is
      * @notice Returns the maximum amount of Vault shares that can be redeemed from the owner balance in the Vault,
      * through a redeem call.
      * @param owner The owner of the shares.
-     * @param amount Maximum amount of shares that can be redeemed.
+     * @return amount Maximum amount of shares that can be redeemed.
      */
     function maxRedeem(address owner) public view override returns (uint256 amount) {
         if (isBlocklisted[owner] || paused()) {
             return 0;
         } else {
-            return balanceOf(owner);
+            uint256 shares = balanceOf(owner);
+            return _convertToAssets(shares, Math.Rounding.Floor) == 0 ? 0 : shares;
         }
     }
 
@@ -638,7 +687,7 @@ contract FirelightVault is
     }
 
     /**
-     * @notice Deposits assets into the vault and receive shares, with blocklist and pause checks.
+     * @notice Deposits assets into the vault and receives shares, with blocklist, active incident and pause checks.
      * @param assets Amount of assets to deposit.
      * @param receiver Address receiving the shares.
      * @return Amount of shares received.
@@ -674,7 +723,8 @@ contract FirelightVault is
     }
 
     /**
-     * @notice Mints shares by depositing the required amount of assets into the vault, with blocklist and pause checks.
+     * @notice Mints shares by depositing the required amount of assets into the vault,
+     * with blocklist, active incident and pause checks.
      * @param shares Amount of shares to mint.
      * @param receiver Address receiving the shares.
      * @return Amount of assets deposited.
@@ -735,6 +785,8 @@ contract FirelightVault is
             false,
             Math.Rounding.Floor
         );
+
+        if (assets == 0) revert InvalidAmount();
 
         uint256 ownerBalance = _requestWithdraw(assets, shares, receiver, owner);
 
@@ -867,7 +919,6 @@ contract FirelightVault is
 
             withdrawSharesOf[periods[i]][to] += _withdrawOf;
             withdrawSharesOf[periods[i]][from] = 0;
-            isWithdrawClaimed[periods[i]][from] = true;
 
             rescuedShares[i] = _withdrawOf;
         }
@@ -908,7 +959,10 @@ contract FirelightVault is
 
         // Cap by the active assets committed at the start of the covered period.
         // This is an exposure cap, not a segregated asset bucket.
-        uint256 assetsAtCapturePeriod = totalAssetsAt(capturePeriodStart);
+        // Use capturePeriodStart - 1 so the inclusive lookup selects timestamps < capturePeriodStart.
+        // This excludes deposits and withdrawals at the period start from the payout snapshot.
+        // capturePeriodStart is always > 0 (deploy epoch), so the subtraction cannot underflow.
+        uint256 assetsAtCapturePeriod = totalAssetsAt(capturePeriodStart - 1);
         uint256 currentActiveAssets = totalAssets();
 
         // Withdrawals requested during the capture period are assigned to capturePeriod + 1
@@ -1082,8 +1136,11 @@ contract FirelightVault is
     }
 
     function _addPeriodConfiguration(uint48 newEpoch, uint48 newDuration) private {
-        if (newDuration < SMALLEST_PERIOD_DURATION || newDuration % SMALLEST_PERIOD_DURATION != 0)
-            revert InvalidPeriodConfigurationDuration();
+        if (
+            newDuration < SMALLEST_PERIOD_DURATION ||
+            newDuration > MAX_PERIOD_DURATION ||
+            newDuration % SMALLEST_PERIOD_DURATION != 0
+        ) revert InvalidPeriodConfigurationDuration();
 
         uint256 startingPeriod;
         if (periodConfigurations.length > 0) {
@@ -1110,8 +1167,8 @@ contract FirelightVault is
     }
 
     /// @dev True while an incident is active in the current period or the previous one. The previous period is
-    /// included because a claim captured then is still payable this period, so deposits stay blocked until that
-    /// payout window closes; otherwise fresh deposits would back unresolved exposure.
+    /// included because a claim captured then is still payable this period, so deposits stay blocked through the
+    /// following period, until that payout window closes; otherwise fresh deposits would back unresolved exposure.
     function _hasActiveIncident() internal view returns (bool) {
         uint256 period = currentPeriod();
         return hasActiveIncident[period] || (period > 0 && hasActiveIncident[period - 1]);

@@ -1,0 +1,30 @@
+# Foundry runs ALONGSIDE Hardhat. Hardhat keeps owning compilation/deploy and the
+# JS suite in test/*.js; Foundry is added only for fuzzing + invariant testing under
+# test/foundry/. Output/cache dirs are kept separate from Hardhat's artifacts/ + cache/.
+[profile.default]
+src = "contracts"
+test = "test/foundry"
+out = "out"
+cache_path = "cache_forge"
+libs = ["lib", "node_modules"]
+
+# Aligned with hardhat.config.js core overrides (FirelightVault / CoverOrderAllocator):
+# same compiler, EVM version and IR pipeline so Foundry exercises production-equivalent bytecode.
+solc = "0.8.28"
+evm_version = "london"
+via_ir = true
+optimizer = true
+optimizer_runs = 200
+
+# Out of audit scope — third-party Flare/FAsset interfaces and the legacy predeposit vault.
+# Skipped so `forge build` stays fast and green without pulling their full dependency trees.
+skip = ["contracts/fasset/**", "contracts/legacy/**"]
+
+# Fuzzing / invariant defaults. Bump runs/depth in dedicated CI-less local campaigns.
+[fuzz]
+runs = 1000
+
+[invariant]
+runs = 256
+depth = 50
+fail_on_revert = false

@@ -256,5 +256,6 @@ module.exports = {
   deployVault,
   deployCoverOrderAllocator,
   computeMarketId,
-  computeProtocolConcentrationHash
+  computeProtocolConcentrationHash,
+  randomSigner
 }

@@ -687,8 +687,9 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
     }
 
     /// @notice Recomputes the period's effective cover capacity from live inputs.
-    /// @dev Values staked assets at `currentPeriodStart()`, so it is only meaningful for the
-    ///      current period (enforced by callers). Capacity is in canonical USD.
+    /// @dev Values staked assets as of the current period start (read strictly before the
+    ///      boundary second), so it is only meaningful for the current period (enforced by
+    ///      callers). Capacity is in canonical USD.
     ///      The divergence tolerance is folded in here as the period's EFFECTIVE capacity, so
     ///      both the global allocation cap (commit/recommit) and the per-protocol concentration
     ///      caps in `_settleCoverOrder` (which read `commit.totalAvailableCapacity`) scale by the
@@ -707,8 +708,12 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
             CANONICAL_DECIMALS,
             Math.Rounding.Floor
         );
+        // Use periodStart - 1 so the inclusive lookup selects timestamps < periodStart, not <= periodStart.
+        // This excludes withdrawals at the period start and uses the same cutoff as payout.
+        // The deploy epoch is > 0, so the subtraction cannot underflow.
+        uint48 periodStart = $.vault.currentPeriodStart();
         uint256 totalAssetsCanonical = Decimals.convert(
-            $.vault.totalAssetsAt($.vault.currentPeriodStart()),
+            $.vault.totalAssetsAt(periodStart - 1),
             $.vaultAssetDecimals,
             CANONICAL_DECIMALS,
             Math.Rounding.Floor
@@ -815,7 +820,7 @@ contract CoverOrderAllocator is ICoverOrderAllocator, AccessControlUpgradeable, 
      *          in the same period, or if the curator excludes the affected orders from the
      *          matching tree (they will remain PENDING and can be cancelled).
      *
-     *      A future hard mitigation would be to deferr decreases to currentPeriod() + 2,
+     *      A future hard mitigation would be to defer decreases to currentPeriod() + 2,
      *      preserving the original cap for orders already on the book; not implemented today
      *      so that the curator retains immediate control.
      */

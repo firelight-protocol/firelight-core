@@ -107,6 +107,57 @@ describe("FirelightVault payout accounting", function () {
     expect(await token_contract.balanceOf(firelight_vault.target)).to.equal(5n);
   });
 
+  // Regression: cluster-E boundary bug (reports 88287 / 88473 / 88534 / 88555).
+  // A withdrawal mined in the exact first second of a period writes a checkpoint at that
+  // period's start timestamp. Because `totalAssetsAt` is inclusive (`key <= T`), that write
+  // rewrites the period-start snapshot itself. Before the fix, `payout` read that mutated
+  // snapshot as its exposure cap and short-paid a valid claim even though the money was still
+  // in the vault (sitting in the withdrawal bucket). The fix reads `capturePeriodStart - 1`,
+  // strictly before the boundary second, so the boundary withdrawal cannot lower the cap.
+  it("does not let a withdrawal mined at the exact period start lower the payout cap", async () => {
+    const { token_contract, firelight_vault, payout_signer, payout_receiver, users } =
+      await setupVaultPayout(10n);
+
+    // Start of the next period (the boundary second). Advancing is not needed to read it.
+    const periodStart = await firelight_vault.currentPeriodEnd();
+
+    // The opening exposure, read strictly before the boundary, is the full 10.
+    expect(await firelight_vault.totalAssetsAt(periodStart - 1n)).to.equal(10n);
+
+    // Land the withdrawal in the exact first second of the new period.
+    await time.setNextBlockTimestamp(periodStart);
+    await firelight_vault.connect(users[0]).withdraw(8n, users[0].address, users[0].address);
+
+    const capturePeriod = await firelight_vault.currentPeriod();
+    expect(capturePeriod).to.equal(1n);
+    expect(await firelight_vault.currentPeriodStart()).to.equal(periodStart);
+
+    // The boundary write corrupts the period-start snapshot: totalAssetsAt(periodStart) now
+    // reflects the post-withdrawal net (2), while the pre-boundary value is intact (10).
+    expect(await firelight_vault.totalAssetsAt(periodStart)).to.equal(2n);
+    expect(await firelight_vault.totalAssetsAt(periodStart - 1n)).to.equal(10n);
+
+    // The 8 never left: the tokens are still in the vault, held in the slashable bucket.
+    expect(await token_contract.balanceOf(firelight_vault.target)).to.equal(10n);
+    expect(await firelight_vault.totalAssets()).to.equal(2n);
+    expect(await firelight_vault.withdrawAssets(capturePeriod + 1n)).to.equal(8n);
+    expect(await firelight_vault.pendingWithdrawAssets()).to.equal(8n);
+
+    // A valid 10-unit claim on this period. The cap now reads totalAssetsAt(periodStart - 1) = 10,
+    // and activePayableAmount = totalAssets(2) + withdrawAssets[P+1](8) = 10, so it pays in FULL.
+    // Under the pre-fix code the cap would have been the corrupted 2, short-paying by 8.
+    await expect(firelight_vault.connect(payout_signer).payout(payout_receiver.address, 10n, periodStart))
+      .to.emit(firelight_vault, "PayoutExecuted")
+      .withArgs(payout_receiver.address, 10n, 10n, periodStart);
+
+    // The slashable bucket is fully consumed and the claimant received the whole 10.
+    expect(await firelight_vault.totalAssets()).to.equal(0n);
+    expect(await firelight_vault.withdrawAssets(capturePeriod + 1n)).to.equal(0n);
+    expect(await firelight_vault.pendingWithdrawAssets()).to.equal(0n);
+    expect(await token_contract.balanceOf(payout_receiver.address)).to.equal(10n);
+    expect(await token_contract.balanceOf(firelight_vault.target)).to.equal(0n);
+  });
+
   it("reverts when payout is executed after the payout window expires", async () => {
     const { firelight_vault, payout_signer, payout_receiver, config } = await setupVaultPayout(2n);
 

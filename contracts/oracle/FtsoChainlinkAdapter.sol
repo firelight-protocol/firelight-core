@@ -96,15 +96,29 @@ contract FtsoChainlinkAdapter is AccessControlDefaultAdminRules, IAggregatorV3 {
     // Errors
     // ------------------------------------------------------------------
 
+    /// @notice The supplied feed identifier is zero.
     error FeedIdEmpty();
+
+    /// @notice The supplied feed identifier matches the currently configured feed.
     error FeedIdUnchanged();
+
+    /// @notice The FTSO feed value cannot be represented as a signed Chainlink answer.
+    /// @param value The feed value that exceeds type(int256).max.
     error FeedValueExceedsInt256(uint256 value);
+
+    /// @notice Historical round lookup is unsupported; use latestRoundData for the current value.
     error NotImplemented();
 
     // ------------------------------------------------------------------
     // Events
     // ------------------------------------------------------------------
 
+    /// @notice Emitted when the feed identifier and description are configured.
+    /// @dev Also emitted during construction, with a zero old feed identifier and an empty old description.
+    /// @param oldFeedId The previous FTSO feed identifier.
+    /// @param newFeedId The newly configured FTSO feed identifier.
+    /// @param oldDescription The previous feed description.
+    /// @param newDescription The newly configured feed description.
     event FeedConfigUpdated(
         bytes21 indexed oldFeedId,
         bytes21 indexed newFeedId,
@@ -176,6 +190,8 @@ contract FtsoChainlinkAdapter is AccessControlDefaultAdminRules, IAggregatorV3 {
     /**
      * @notice Rotate the FTSO feed id and the human-readable description
      *         atomically. Callable only by `FEED_ADMIN_ROLE`.
+     * @param newFeedId The FTSO feed identifier. Must be nonzero and different from the current feed.
+     * @param newDescription The human-readable description of the new feed.
      */
     function setFeedConfig(bytes21 newFeedId, string calldata newDescription)
         external

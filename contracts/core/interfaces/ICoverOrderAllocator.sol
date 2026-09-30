@@ -178,6 +178,9 @@ interface ICoverOrderAllocator {
         uint256 minCAR;
         /// ERC20 (decimals ≤ CANONICAL_DECIMALS) used as first-loss-buffer collateral.
         IERC20 firstLossBufferToken;
+        /// Upper margin (bps) tolerated between the submitted `totalAllocated` and the recomputed
+        /// capacity at commit/recommit, to absorb price/FLB drift. 0 = strict (legacy behavior).
+        uint16 divergenceToleranceBps;
         /// Custody wallet holding the first-loss-buffer balance.
         address firstLossBuffer;
         /// Leverage applied to collateral when computing capacity, in bps
@@ -185,9 +188,6 @@ interface ICoverOrderAllocator {
         uint256 effectiveLeverage;
         /// Minimum per-market cover amount allowed on an order, in canonical USD.
         uint256 minOrderMarketCoverAmount;
-        /// Upper margin (bps) tolerated between the submitted `totalAllocated` and the recomputed
-        /// capacity at commit/recommit, to absorb price/FLB drift. 0 = strict (legacy behavior).
-        uint16 divergenceToleranceBps;
     }
 
     /// @notice Committed off-chain matching results and settlement accounting for a period.
@@ -465,7 +465,7 @@ interface ICoverOrderAllocator {
     /// @notice Thrown when the price feed adapter decimals are outside [6, 18].
     /// @param decimals Reported adapter decimals.
     error InvalidPriceFeedDecimals(uint8 decimals);
-    /// @notice Thrown when a concentration input is invalid (zero chainId/protocol or bps > 100%).
+    /// @notice Thrown when a concentration input is invalid (empty protocol or bps > 100%).
     error InvalidProtocolConcentration();
     /// @notice Thrown when the configured minimum order-market cover amount is zero.
     error InvalidMinOrderMarketCoverAmount();
@@ -710,7 +710,7 @@ interface ICoverOrderAllocator {
     /// @return The set of supported premium token addresses.
     function getSupportedPremiumTokens() external view returns (address[] memory);
 
-    /// @notice Current capacity configuration.
+    /// @notice Effective capacity configuration at currentPeriod() + 1.
     function getEffectiveCapacityConfig() external view returns (CapacityConfig memory);
 
     /// @notice get active capacity config at a given period

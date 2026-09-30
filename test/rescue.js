@@ -186,4 +186,52 @@ describe('Rescue test', function() {
     await expect(claimAttempt).to.be.revertedWithCustomError(firelight_vault, 'AlreadyClaimedPeriod')
   })
 
+  it('allows a user to withdraw again into a rescued future-period bucket', async () => {
+    const amount = ethers.parseUnits('2000', 6)
+    const depositLimit = ethers.parseUnits('100000', 6)
+
+    const {
+      token_contract,
+      firelight_vault: vault,
+      blocklister,
+      rescuer,
+      users,
+      utils,
+      config,
+    } = await deployVault({ initial_deposit_limit: depositLimit })
+
+    const blockedAddress = users[0]
+    const rescueToAddress = users[1]
+
+    await utils.mintAndApprove(amount * 3n, blockedAddress)
+    await vault.connect(blockedAddress).deposit(amount * 3n, blockedAddress.address)
+
+    const withdrawPeriod = (await vault.currentPeriod()) + 1n
+
+    // First withdrawal is rescued.
+    await vault.connect(blockedAddress).withdraw(amount, blockedAddress.address, blockedAddress.address)
+    await vault.connect(blocklister).addToBlocklist(blockedAddress.address)
+    await vault
+      .connect(rescuer)
+      .rescueWithdrawFromBlocklisted(blockedAddress.address, rescueToAddress.address, [withdrawPeriod])
+
+    expect(await vault.withdrawSharesOf(withdrawPeriod, blockedAddress.address)).to.equal(0n)
+    expect(await vault.isWithdrawClaimed(withdrawPeriod, blockedAddress.address)).to.equal(false)
+
+    // The user is unblocked and requests another withdrawal into the same bucket.
+    await vault.connect(blocklister).removeFromBlocklist(blockedAddress.address)
+    await vault.connect(blockedAddress).withdraw(amount, blockedAddress.address, blockedAddress.address)
+
+    expect(await vault.withdrawSharesOf(withdrawPeriod, blockedAddress.address)).to.be.greaterThan(0n)
+
+    // Once claimable, the second withdrawal must succeed.
+    await time.increase(config.period_configuration_duration * 2)
+
+    const balanceBefore = await token_contract.balanceOf(blockedAddress.address)
+    await expect(vault.connect(blockedAddress).claimWithdraw(withdrawPeriod))
+      .to.emit(vault, 'CompleteWithdraw')
+      .withArgs(blockedAddress.address, amount, withdrawPeriod)
+
+    expect(await token_contract.balanceOf(blockedAddress.address)).to.equal(balanceBefore + amount)
+  })
 })
