@@ -1,27 +1,34 @@
-# Firelight
-**FirelightVault** is an upgradeable ERC‑4626 compatible vault with additional features:
+# Firelight Core
 
-- Total deposit limit
-- Pause functionality
-- Block and unblock accounts from moving shares
-- Rescue shares or pending withdrawals from blocked accounts
-- Time-locked withdrawals
-- Historical tracking 
-- Role-based controls: `DEPOSIT_LIMIT_UPDATE_ROLE`, `RESCUER_ROLE`, `BLOCKLIST_ROLE`, `PAUSE_ROLE` , `PERIOD_CONFIGURATION_UPDATE_ROLE`
+Smart contracts for the Firelight protocol.
 
+The core contracts include:
 
-## Installation
-```
-git clone https://github.com/firelight-protocol/firelight-core.git
-cd firelight-core
+- `FirelightVault`: ERC-4626 compatible vault with period accounting, payout, withdrawal, pause, and blocklist controls.
+- `CoverNFT`: ERC-721 cover position token used by the cover allocation system.
+- `CoverOrderAllocator`: cover order, settlement, premium, and market allocation logic.
+- `IncidentManager`: incident creation, assessment, approval, and payout orchestration.
+- `VaultRewardDistributor`: distribution helper for vault-related rewards.
+- `FtsoChainlinkAdapter`: oracle adapter exposing Flare FTSO prices through a Chainlink-compatible interface.
+
+## Install
+
+```bash
 npm install
 ```
 
-## Env variables
-Create your .env file using .env.sample as a guide. 
+## Compile
 
+```bash
+npm run compile
+```
 
-## Testing
+## Test
+
+```bash
+npm test
 ```
-npx hardhat test
-```
+
+## License
+
+BUSL-1.1

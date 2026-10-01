@@ -2,8 +2,8 @@
 
 pragma solidity 0.8.28;
 
-import {FirelightVault} from  "../FirelightVault.sol";
-import {Checkpoints} from "../lib/Checkpoints.sol";
+import {FirelightVault} from  "../core/FirelightVault.sol";
+import {Checkpoints} from "../core/lib/Checkpoints.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 

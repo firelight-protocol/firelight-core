@@ -1,0 +1,127 @@
+{
+  "name": "Mixed-decimals premium tokens — allocator normalizes USDC (6d) + USDF (8d) + DAI (18d) to canonical 18d",
+  "setup": {
+    "vault": {
+      "currentPeriod": 0,
+      "totalAssets": "0",
+      "periodDuration": 2592000
+    },
+    "capacityConfig": {
+      "minCAR": 12000,
+      "firstLossBufferBalance": "10000000000"
+    },
+    "premiumTokens": [
+      {
+        "name": "USDC",
+        "decimals": 6
+      },
+      {
+        "name": "USDF",
+        "decimals": 8
+      },
+      {
+        "name": "DAI",
+        "decimals": 18
+      }
+    ],
+    "initialProtocolConcentrations": [
+      {
+        "protocol": "Morpho",
+        "chainId": 1,
+        "maxProtocolConcentrationBps": 10000
+      }
+    ],
+    "markets": [
+      {
+        "protocol": "Morpho",
+        "market": "market-A",
+        "chainId": 1
+      }
+    ]
+  },
+  "matchingParams": {
+    "effectiveLeverage": 24000,
+    "assetPriceUSD": "1000000000000000000"
+  },
+  "orders": [
+    {
+      "buyer": "buyer1",
+      "beneficiary": "buyer1",
+      "premiumToken": "USDC",
+      "markets": [
+        {
+          "marketId": "1:Morpho:market-A",
+          "coverRateAnnual": 500,
+          "coverAmount": "1000000000000000000000"
+        }
+      ],
+      "orderType": "RENEWAL"
+    },
+    {
+      "buyer": "buyer2",
+      "beneficiary": "buyer2",
+      "premiumToken": "USDF",
+      "markets": [
+        {
+          "marketId": "1:Morpho:market-A",
+          "coverRateAnnual": 500,
+          "coverAmount": "2000000000000000000000"
+        }
+      ],
+      "orderType": "NEW"
+    },
+    {
+      "buyer": "buyer3",
+      "beneficiary": "buyer3",
+      "premiumToken": "DAI",
+      "markets": [
+        {
+          "marketId": "1:Morpho:market-A",
+          "coverRateAnnual": 500,
+          "coverAmount": "3000000000000000000000"
+        }
+      ],
+      "orderType": "NEW"
+    }
+  ],
+  "expected": {
+    "orders": [
+      {
+        "orderId": 0,
+        "status": "MATCHED",
+        "allocatedCoverAmount": "1000000000000000000000",
+        "allocatedCoverPerMarket": [
+          "1000000000000000000000"
+        ],
+        "allocatedPremiumAmount": "4109589041095890411"
+      },
+      {
+        "orderId": 1,
+        "status": "MATCHED",
+        "allocatedCoverAmount": "2000000000000000000000",
+        "allocatedCoverPerMarket": [
+          "2000000000000000000000"
+        ],
+        "allocatedPremiumAmount": "8219178082191780822"
+      },
+      {
+        "orderId": 2,
+        "status": "MATCHED",
+        "allocatedCoverAmount": "3000000000000000000000",
+        "allocatedCoverPerMarket": [
+          "3000000000000000000000"
+        ],
+        "allocatedPremiumAmount": "12328767123287671233"
+      }
+    ],
+    "totalAllocated": "6000000000000000000000",
+    "marketAllocated": {
+      "1:Morpho:market-A": "6000000000"
+    },
+    "premiumCollectorBalances": {
+      "USDC": "4109590",
+      "USDF": "821917809",
+      "DAI": "12328767123287671233"
+    }
+  }
+}

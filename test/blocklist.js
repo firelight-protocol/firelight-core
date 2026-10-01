@@ -29,8 +29,9 @@ describe('Blocklist test', function() {
     await expect(blocklist).to.be.revertedWithCustomError(firelight_vault, 'InvalidAddress')
   })
 
-  it('successfully adds a bad user to the blocklist', async () => {
-    await firelight_vault.connect(blocklister).addToBlocklist(users[0].address)
+  it('successfully adds a bad user to the blocklist; emits AddedToBlocklist', async () => {
+    await expect(firelight_vault.connect(blocklister).addToBlocklist(users[0].address))
+      .to.emit(firelight_vault, 'AddedToBlocklist').withArgs(users[0].address)
     const status = await firelight_vault.isBlocklisted(users[0].address)
     expect(status).to.equal(true)
   })
@@ -138,8 +139,9 @@ describe('Blocklist test', function() {
     await expect(blocklist).to.be.revertedWithCustomError(firelight_vault, 'NotBlocklistedAddress')
   })
 
-  it('removes a user from the blocklist', async () => {
-    await firelight_vault.connect(blocklister).removeFromBlocklist(users[0].address)
+  it('removes a user from the blocklist; emits RemovedFromBlocklist', async () => {
+    await expect(firelight_vault.connect(blocklister).removeFromBlocklist(users[0].address))
+      .to.emit(firelight_vault, 'RemovedFromBlocklist').withArgs(users[0].address)
     const status = await firelight_vault.isBlocklisted(users[0].address)
     expect(status).to.equal(false)
   })

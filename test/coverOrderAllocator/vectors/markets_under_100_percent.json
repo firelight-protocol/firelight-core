@@ -1,0 +1,106 @@
+{
+  "name": "Markets sum to 50% — 50% of total capacity is structurally unused",
+  "setup": {
+    "vault": {
+      "currentPeriod": 0,
+      "totalAssets": "0",
+      "periodDuration": 2592000
+    },
+    "capacityConfig": {
+      "minCAR": 12000,
+      "firstLossBufferBalance": "10000000000"
+    },
+    "premiumTokens": [
+      {
+        "name": "USDC",
+        "decimals": 6
+      }
+    ],
+    "initialProtocolConcentrations": [
+      {
+        "protocol": "Morpho",
+        "chainId": 1,
+        "maxProtocolConcentrationBps": 3000
+      },
+      {
+        "protocol": "Aave",
+        "chainId": 10,
+        "maxProtocolConcentrationBps": 2000
+      }
+    ],
+    "markets": [
+      {
+        "protocol": "Morpho",
+        "market": "market-A",
+        "chainId": 1
+      },
+      {
+        "protocol": "Aave",
+        "market": "market-B",
+        "chainId": 10
+      }
+    ]
+  },
+  "matchingParams": {
+    "effectiveLeverage": 12000,
+    "assetPriceUSD": "1000000000000000000"
+  },
+  "orders": [
+    {
+      "buyer": "buyer1",
+      "beneficiary": "buyer1",
+      "premiumToken": "USDC",
+      "markets": [
+        {
+          "marketId": "1:Morpho:market-A",
+          "coverRateAnnual": 500,
+          "coverAmount": "2000000000000000000000"
+        }
+      ],
+      "orderType": "NEW"
+    },
+    {
+      "buyer": "buyer2",
+      "beneficiary": "buyer2",
+      "premiumToken": "USDC",
+      "markets": [
+        {
+          "marketId": "10:Aave:market-B",
+          "coverRateAnnual": 400,
+          "coverAmount": "1500000000000000000000"
+        }
+      ],
+      "orderType": "NEW"
+    }
+  ],
+  "expected": {
+    "orders": [
+      {
+        "orderId": 0,
+        "status": "MATCHED",
+        "allocatedCoverAmount": "2000000000000000000000",
+        "allocatedCoverPerMarket": [
+          "2000000000000000000000"
+        ],
+        "allocatedPremiumAmount": "8219178082191780822"
+      },
+      {
+        "orderId": 1,
+        "status": "MATCHED",
+        "allocatedCoverAmount": "1500000000000000000000",
+        "allocatedCoverPerMarket": [
+          "1500000000000000000000"
+        ],
+        "allocatedPremiumAmount": "4931506849315068494"
+      }
+    ],
+    "totalAllocated": "3500000000000000000000",
+    "marketAllocated": {
+      "1:Morpho:market-A": "2000000000",
+      "10:Aave:market-B": "1500000000"
+    },
+    "premiumCollectorBalances": {
+      "USDC": "13150686"
+    }
+  }
+}

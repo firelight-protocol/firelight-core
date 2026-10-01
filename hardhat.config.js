@@ -1,107 +1,153 @@
-const { EXECUTION_KEYS, DEPLOYMENT_ACCOUNT_KEY, NODE_RPC_URL, MAINNET_RPC_HEADERS, MAINNET_NETWORK_ID, HARDHAT_CHAIN_ID, EXTRA_KEYS, ETHERSCAN_API_KEY } = require('./lib/env')
-require('@openzeppelin/hardhat-upgrades')
-require('@nomicfoundation/hardhat-chai-matchers')
-require('@nomicfoundation/hardhat-verify')
-require('hardhat-contract-sizer')
-require('solidity-coverage')
-const { removeConsoleLog } = require('hardhat-preprocessor')
+const {
+  EXECUTION_KEYS,
+  DEPLOYMENT_ACCOUNT_KEY,
+  NODE_RPC_URL,
+  MAINNET_RPC_HEADERS,
+  MAINNET_NETWORK_ID,
+  HARDHAT_CHAIN_ID,
+  EXTRA_KEYS,
+  ETHERSCAN_API_KEY,
+} = require("./lib/env");
+require("@openzeppelin/hardhat-upgrades");
+require("@nomicfoundation/hardhat-chai-matchers");
+require("@nomicfoundation/hardhat-verify");
+require("hardhat-contract-sizer");
+require("solidity-coverage");
+const { removeConsoleLog } = require("hardhat-preprocessor");
 
-const custom_tasks = require('./tasks/index.js')
-for (const t of custom_tasks) {
-  const new_task = task(t.name, t.description)
-  for (const p of t.params || [])
-    if (p.default || p.default === 0)
-      new_task.addOptionalParam(p.name, p.description, p.default)
-    else
-      new_task.addParam(p.name, p.description)
-  new_task.setAction(t.action)
-}
+const rawKeys = [DEPLOYMENT_ACCOUNT_KEY, ...EXECUTION_KEYS, ...EXTRA_KEYS].filter(Boolean);
+const accounts = rawKeys.map((k) => `0x${k}`);
 
-const accounts = [DEPLOYMENT_ACCOUNT_KEY, ...EXECUTION_KEYS, ...EXTRA_KEYS].map(k => `0x${ k }`)
-
-const forking = {
-  url: NODE_RPC_URL || 'No url'
-}
-if (process.env.BN)
-  forking.blockNumber = parseInt(process.env.BN)
+const forking = NODE_RPC_URL ? { url: NODE_RPC_URL } : undefined;
+if (forking && process.env.BN) forking.blockNumber = parseInt(process.env.BN);
 
 module.exports = {
-  defaultNetwork: 'hardhat',
+  defaultNetwork: "hardhat",
   preprocess: {
-     eachLine: removeConsoleLog(_ => !process.env.SHOW_LOGS)
+    eachLine: removeConsoleLog((_) => !process.env.SHOW_LOGS),
   },
   networks: {
     hardhat: {
-      chainId: HARDHAT_CHAIN_ID,
-      accounts: accounts.map(a => ({
-        privateKey: a,
-        balance: '1000000000000000000000000000'
-      })),
-      forking,
+      allowUnlimitedContractSize: true,
+      ...(Number.isNaN(HARDHAT_CHAIN_ID) ? {} : { chainId: HARDHAT_CHAIN_ID }),
+      ...(accounts.length > 0
+        ? {
+            accounts: accounts.map((a) => ({
+              privateKey: a,
+              balance: "1000000000000000000000000000",
+            })),
+          }
+        : {}),
+      ...(process.env.FORK === "1" && forking ? { forking } : {}),
       chains: {
         14: {
           hardforkHistory: {
-            london: 0
-          }
-        }
-      }
+            london: 0,
+            cancun: 51541706,
+          },
+        },
+      },
     },
     mainnet: {
-      url: NODE_RPC_URL || 'No url',
-      gas: 'auto',
+      url: NODE_RPC_URL || "No url",
+      gas: "auto",
       gasPrice: 1000000000,
       gasMultiplier: 1.2,
       blockGasLimit: 8000000,
       network_id: MAINNET_NETWORK_ID,
       accounts,
-      httpHeaders: MAINNET_RPC_HEADERS ? JSON.parse(MAINNET_RPC_HEADERS) : undefined
+      httpHeaders: MAINNET_RPC_HEADERS ? JSON.parse(MAINNET_RPC_HEADERS) : undefined,
     },
     coston: {
-      url: 'https://coston-api.flare.network/ext/bc/C/rpc',
+      url: "https://coston-api.flare.network/ext/bc/C/rpc",
       chainId: 16,
-      accounts
-    }
+      accounts,
+    },
+    coston2: {
+      url: process.env.COSTON2_RPC_URL || "https://coston2-api.flare.network/ext/C/rpc",
+      chainId: 114,
+      accounts,
+      // The public Coston2 RPC occasionally lets a request hang indefinitely. Without a
+      // timeout the whole deploy stalls forever; with one, a stalled request errors out so
+      // index.ts saves partial state and the run can be resumed via runStep.ts.
+      timeout: 120000,
+    },
   },
   etherscan: {
     apiKey: {
-      flare: ETHERSCAN_API_KEY
+      coston2: "no-key-needed",
     },
     customChains: [
       {
-        network: "flare",
-        chainId: 14,
+        network: "coston2",
+        chainId: 114,
         urls: {
-          apiURL: "https://api.routescan.io/v2/network/mainnet/evm/14/etherscan/api",
-          browserURL: "https://flarescan.com/"
-        }
-      }
-    ]
+          apiURL: "https://coston2-explorer.flare.network/api",
+          browserURL: "https://coston2-explorer.flare.network",
+        },
+      },
+    ],
   },
   solidity: {
     compilers: [
       {
-        version: '0.8.23',
+        version: "0.8.23",
         settings: {
           optimizer: {
             enabled: true,
-            runs: 10000
+            runs: 10000,
           },
-          evmVersion: 'london'
-        }
+          evmVersion: "london",
+        },
       },
       {
-        version: '0.8.28',
+        version: "0.8.28",
         settings: {
           optimizer: {
             enabled: true,
-            runs: 10000
+            runs: 10000,
           },
-          evmVersion: 'london'
-        }
-      }
-    ]
+          evmVersion: "london",
+          viaIR: true,
+        },
+      },
+      {
+        version: "0.8.29",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 1000,
+          },
+          evmVersion: "london",
+        },
+      },
+    ],
+    overrides: {
+      "contracts/core/CoverOrderAllocator.sol": {
+        version: "0.8.28",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 100,
+          },
+          evmVersion: "london",
+          viaIR: true,
+        },
+      },
+      "contracts/core/FirelightVault.sol": {
+        version: "0.8.28",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 800,
+          },
+          evmVersion: "london",
+          viaIR: true,
+        },
+      },
+    },
   },
   paths: {
-    sources: './contracts'
-  }
-}
+    sources: "./contracts",
+  },
+};

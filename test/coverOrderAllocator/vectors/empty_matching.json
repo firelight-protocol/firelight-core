@@ -1,0 +1,45 @@
+{
+  "name": "Empty matching — no orders, matching runs cleanly with zero allocations",
+  "setup": {
+    "vault": {
+      "currentPeriod": 0,
+      "totalAssets": "0",
+      "periodDuration": 2592000
+    },
+    "capacityConfig": {
+      "minCAR": 12000,
+      "firstLossBufferBalance": "5000000000"
+    },
+    "premiumTokens": [
+      {
+        "name": "USDC",
+        "decimals": 6
+      }
+    ],
+    "initialProtocolConcentrations": [
+      {
+        "protocol": "Morpho",
+        "chainId": 1,
+        "maxProtocolConcentrationBps": 5000
+      }
+    ],
+    "markets": [
+      {
+        "protocol": "Morpho",
+        "market": "market-A",
+        "chainId": 1
+      }
+    ]
+  },
+  "matchingParams": {
+    "effectiveLeverage": 12000,
+    "assetPriceUSD": "1000000000000000000"
+  },
+  "orders": [],
+  "expected": {
+    "orders": [],
+    "totalAllocated": "0",
+    "marketAllocated": {},
+    "premiumCollectorBalances": {}
+  }
+}
